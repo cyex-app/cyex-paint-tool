@@ -8,70 +8,138 @@
   // =====================================================================================
   // Library and presets dialogs
   // =====================================================================================
+  // The library: built-in layers or effects grouped by category, My library (userlib.js) first, a
+  // search that ranks across all of them (search.js), and "Similar" on every card.
+  const MINE = 'My library';
   let libCat = { layer: 'All', effect: 'All' };
   function openLibrary(kind, startCat) {
     const defs = kind === 'layer' ? PL.LAYERS : PL.EFFECTS, cats = kind === 'layer' ? PL.LAYER_CATS : PL.EFFECT_CATS;
+    const U = A.userLib, S = A.Search;
     if (startCat) libCat[kind] = startCat;
-    const search = h('input', { class: 'field', placeholder: 'Search…', 'aria-label': 'Search the library', autofocus: true });
+    const builtins = Object.values(defs).filter((d) => !d.custom && cats.includes(d.cat)).map((d) => ({ key: kind[0].toUpperCase() + ':' + d.id, kind, name: d.name, cat: d.cat, desc: d.desc, tags: d.tags || [], def: d }));
+    let mine = U ? U.entries(kind) : [];
+    const all = () => mine.concat(builtins);
+    let similarTo = null;
+    const search = h('input', { class: 'field', placeholder: 'Search by name, look or feel, e.g. shiny metal, water, retro…', 'aria-label': 'Search the library', autofocus: true });
     const list = h('div', { class: 'stack libmain' });
     const nav = h('nav', { class: 'libnav', 'aria-label': 'Categories' });
+    const live = h('span', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
     const renderNav = () => {
       nav.textContent = '';
-      for (const c of ['All', ...cats]) {
-        const n = c === 'All' ? Object.keys(defs).length : Object.values(defs).filter((d) => d.cat === c).length;
-        nav.append(h('button', { type: 'button', class: 'navitem', 'aria-current': String(libCat[kind] === c), onclick: () => { libCat[kind] = c; renderNav(); render(); } }, h('span', null, c), h('span', { class: 'gcount' }, n)));
+      const counts = [[MINE, mine.length], ['All', builtins.length], ...cats.map((c) => [c, builtins.filter((e) => e.cat === c).length])].filter(([c, n]) => n || c === MINE || c === 'All');
+      for (const [c, n] of counts) {
+        nav.append(h('button', { type: 'button', class: 'navitem' + (c === MINE ? ' mine' : ''), 'aria-current': String(libCat[kind] === c && !search.value.trim() && !similarTo), onclick: () => { libCat[kind] = c; similarTo = null; search.value = ''; renderNav(); render(); list.scrollTop = 0; } }, c === MINE ? icon('bookmark') : null, h('span', null, c), h('span', { class: 'gcount' }, n)));
       }
     };
     const thumbs = [];
-    const render = () => {
-      const q = search.value.trim().toLowerCase();
-      list.textContent = ''; thumbs.length = 0;
-      for (const cat of cats) {
-        if (!q && libCat[kind] !== 'All' && libCat[kind] !== cat) continue;
-        const items = Object.values(defs).filter((d) => d.cat === cat && (!q || (d.name + ' ' + d.desc + ' ' + cat).toLowerCase().includes(q)));
-        if (!items.length) continue;
-        list.append(h('div', { class: 'libcat' }, h('h3', { class: 'label' }, cat), h('div', { class: 'cards' }, items.map((def) => {
-          const cv = h('canvas', { width: 160, height: 40, 'aria-hidden': 'true' });
-          thumbs.push([cv, def]);
-          return h('button', { type: 'button', class: 'card', onclick: () => add(def) }, cv, h('b', null, def.name), h('span', null, def.desc));
-        }))));
+    // one card: add on click; Similar (and for your own items, edit and remove) beside it
+    const card = (e, showCat) => {
+      const cv = h('canvas', { width: 160, height: 40, 'aria-hidden': 'true' });
+      thumbs.push([cv, e]);
+      const main = h('button', { type: 'button', class: 'card', onclick: () => add(e) }, cv, h('b', null, e.name), h('span', null, showCat ? `${e.cat} · ${e.desc}` : e.desc));
+      const tools = [iconBtn('search', `Similar to ${e.name}`, () => { similarTo = e; search.value = ''; renderNav(); render(); list.scrollTop = 0; }, { cls: 'sm' })];
+      if (e.user) {
+        if (e.user.type === 'code') tools.push(iconBtn('code', `Edit ${e.name}`, () => U.openCodeEditor(e.user.kind, e.user, { onSaved: refresh }), { cls: 'sm' }));
+        tools.push(removeBtn(e));
       }
-      if (!list.children.length) list.append(h('div', { class: 'empty' }, icon('search'), h('span', null, 'Nothing matches that search.')));
+      return h('div', { class: 'cardwrap' }, main, h('div', { class: 'cardtools' }, tools), e.badge ? h('span', { class: 'badge' }, e.badge) : null);
+    };
+    // remove: the first press arms it ("Press again to remove"), the second removes; leaving disarms
+    const removeBtn = (e) => {
+      const b = iconBtn('trash', `Remove ${e.name} from My library`, () => {
+        if (b.dataset.armed) { U.remove(e.user); toast(`Removed ${e.name} from My library.`); refresh(); return; }
+        b.dataset.armed = '1'; b.classList.add('armed'); b.setAttribute('aria-label', `Press again to remove ${e.name}`); b.dataset.tip = 'Press again to remove';
+      }, { cls: 'sm danger' });
+      const disarm = () => { delete b.dataset.armed; b.classList.remove('armed'); b.setAttribute('aria-label', `Remove ${e.name} from My library`); b.dataset.tip = `Remove ${e.name} from My library`; };
+      b.addEventListener('blur', disarm); b.addEventListener('pointerleave', disarm);
+      return b;
+    };
+    const section = (title, entries, showCat, extra) => h('div', { class: 'libcat' }, h('div', { class: 'libhead' }, h('h3', { class: 'label' }, title), extra || null), h('div', { class: 'cards' }, entries.map((e) => card(e, showCat))));
+    // My library tools: pictures (layers only), new code, import and export
+    const mineTools = () => {
+      const pics = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', multiple: true, class: 'sr-only', onchange: async () => { await U.addImageFiles(pics.files); pics.value = ''; refresh(); } });
+      const imp = h('input', { type: 'file', accept: '.json,application/json', class: 'sr-only', onchange: async () => { if (imp.files[0]) await U.importLibrary(imp.files[0], refresh); imp.value = ''; } });
+      return h('div', { class: 'row libtools' },
+        kind === 'layer' ? h('label', { class: 'btn secondary small' }, icon('image'), 'Upload pictures', pics) : null,
+        btn(kind === 'layer' ? 'New code layer' : 'New code effect', () => U.openCodeEditor(kind, null, { onSaved: refresh }), 'secondary small', 'code'),
+        h('label', { class: 'btn ghost small' }, icon('upload'), 'Import', imp),
+        btn('Export', () => U.exportLibrary(), 'ghost small', 'download'));
+    };
+    const render = () => {
+      const q = search.value.trim();
+      list.textContent = ''; thumbs.length = 0;
+      if (similarTo) {
+        const res = S.similar(all(), similarTo);
+        list.append(h('div', { class: 'libchip' }, h('span', null, 'Similar to ', h('b', null, similarTo.name)), btn('Clear', () => { similarTo = null; renderNav(); render(); search.focus(); }, 'ghost small', 'x')));
+        list.append(res.length ? section(`${res.length} similar`, res, true) : h('div', { class: 'empty' }, icon('search'), h('span', null, 'Nothing else looks much like it.')));
+        live.textContent = `${res.length} similar to ${similarTo.name}`;
+      } else if (q) {
+        const res = S.search(all(), q);
+        if (res.length) list.append(section(`${res.length} match${res.length === 1 ? '' : 'es'}, best first`, res, true));
+        else list.append(h('div', { class: 'empty' }, icon('search'), h('span', null, 'Nothing matches that search. Try another word, like a colour, a material or a mood.')));
+        live.textContent = res.length ? `${res.length} matches` : 'No matches';
+      } else if (libCat[kind] === MINE) {
+        const intro = kind === 'layer' ? 'Your own layers: pictures you upload, layers you saved with “Save to My library” in their settings, and code you write.' : 'Your own effects: effects you saved with “Save to My library” in their settings, and code you write.';
+        list.append(h('div', { class: 'libcat' }, h('p', { class: 'hint' }, intro, ' They stay in this browser; Export makes a file you can back up or share.'), mineTools()));
+        if (mine.length) list.append(section(MINE, mine, false));
+        else list.append(h('div', { class: 'empty' }, icon('bookmark'), h('span', null, 'Nothing saved yet.')));
+      } else {
+        if (libCat[kind] === 'All' && mine.length) list.append(section(MINE, mine, false));
+        for (const cat of cats) {
+          if (libCat[kind] !== 'All' && libCat[kind] !== cat) continue;
+          const es = builtins.filter((e) => e.cat === cat);
+          if (es.length) list.append(section(cat, es, false));
+        }
+      }
       drawLibThumbs(kind, thumbs);
     };
-    search.addEventListener('input', render);
-    search.addEventListener('keydown', (e) => { if (e.key === 'Escape' && search.value) { e.stopPropagation(); search.value = ''; render(); } });
-    const add = (def) => {
-      const d = A.state.anim;
+    const refresh = () => { mine = U ? U.entries(kind) : []; renderNav(); render(); };
+    let typing = 0;
+    search.addEventListener('input', () => { similarTo = null; clearTimeout(typing); typing = setTimeout(() => { renderNav(); render(); list.scrollTop = 0; }, 90); });
+    search.addEventListener('keydown', (e) => { if (e.key === 'Escape' && search.value) { e.stopPropagation(); search.value = ''; renderNav(); render(); } });
+    const add = (e) => {
+      if (e.user) { if (U.add(e.user)) dlg.close(); return; }
+      const def = e.def, d = A.state.anim;
       if (kind === 'layer') {
         const l = E.newLayer(def.id);
         if (d.layers.length && ['sparkles', 'stars', 'shine', 'glints', 'particles', 'rays'].includes(def.id)) l.blend = 'screen';
         d.layers.push(l); A.state.sel = { kind, id: l.id };
-      } else { const e = E.newEffect(def.id); d.effects.push(e); A.state.sel = { kind, id: e.id }; }
+      } else { const ef = E.newEffect(def.id); d.effects.push(ef); A.state.sel = { kind, id: ef.id }; }
       dlg.close(); A.renderEditor(); A.changed(true); A.focusItem(A.state.sel.id);
       toast(`Added ${def.name}.${def.cat === 'Scene elements' ? ' Drag on the paint image to place it.' : ''}`);
     };
-    const dlg = dialog(kind === 'layer' ? 'Add a layer or element' : 'Add an effect', [h('div', { class: 'search' }, icon('search'), search), h('div', { class: 'libwrap' }, nav, list)], { wide: true });
+    const total = builtins.length + mine.length;
+    const dlg = dialog(kind === 'layer' ? 'Add a layer or element' : 'Add an effect', [h('div', { class: 'search' }, icon('search'), search), h('p', { class: 'hint libcount' }, `${PL.fmtInt(total)} ${kind === 'layer' ? 'layers' : 'effects'}. The search also finds similar words and typos.`), live, h('div', { class: 'libwrap' }, nav, list)], { wide: true });
     renderNav(); render();
   }
   let libJob = 0;
   function drawLibThumbs(kind, thumbs) {
     const job = ++libJob;
-    const base = [E.newLayer('linear', { params: { stops: PL.clone(PL.PALETTES.sunset), angle: 90, speed: 0 } }), E.newLayer('clouds', { params: { stops: PL.clone(PL.PALETTES.mono) }, blend: 'overlay', opacity: 0.7 })];
+    const base = () => [E.newLayer('linear', { params: { stops: PL.clone(PL.PALETTES.sunset), angle: 90, speed: 0 } }), E.newLayer('clouds', { params: { stops: PL.clone(PL.PALETTES.mono) }, blend: 'overlay', opacity: 0.7 })];
     let i = 0;
     const step = () => {
       if (job !== libJob) return;
       const t0 = performance.now();
       while (i < thumbs.length && performance.now() - t0 < 12) {
-        const [cv, def] = thumbs[i++];
-        const doc = Object.assign(E.blankDoc(), { width: 160, height: 40 });
-        if (kind === 'layer') doc.layers = [E.newLayer(def.id)];
-        else { doc.layers = base; doc.effects = [E.newEffect(def.id)]; }
-        cv.getContext('2d').putImageData(E.renderFrame(E.compile(doc), 3), 0, 0);
+        const [cv, e] = thumbs[i++];
+        if (!cv.isConnected) continue;
+        try {
+          if (e.user && e.user.type === 'image') { drawPicture(cv, e.user.data.src); continue; }
+          let doc;
+          if (e.user) doc = A.userLib.previewDoc(e.user, base);
+          else { doc = E.blankDoc(); if (kind === 'layer') doc.layers = [E.newLayer(e.def.id)]; else { doc.layers = base(); doc.effects = [E.newEffect(e.def.id)]; } }
+          Object.assign(doc, { width: 160, height: 40 });
+          cv.getContext('2d').putImageData(E.renderFrame(E.compile(doc), 3), 0, 0);
+        } catch (_) { /* a broken item keeps a blank thumbnail */ }
       }
       if (i < thumbs.length) setTimeout(step, 0);
     };
     setTimeout(step, 30);
+  }
+  function drawPicture(cv, src) {
+    const im = new Image();
+    im.onload = () => { const c = cv.getContext('2d'), k = Math.max(cv.width / im.width, cv.height / im.height); c.drawImage(im, (cv.width - im.width * k) / 2, (cv.height - im.height * k) / 2, im.width * k, im.height * k); };
+    im.src = src;
   }
 
   function openPresets() {

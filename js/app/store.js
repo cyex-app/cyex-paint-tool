@@ -53,10 +53,14 @@
   A.state.static = Paint.normalize(A.state.static);
 
   // One place that opens any JSON: a 7TV paint, or a cyex paints project.
-  function loadJson(obj) {
+  // A project with custom code that isn't the person's own opens without it, then asks (userlib.js);
+  // opts.trusted (My paints, or after they said yes) opens it as it is.
+  function loadJson(obj, opts = {}) {
     if (obj && obj.cyexPaintProject) {
-      A.state.anim = healDoc(obj.doc); A.state.mode = 'anim'; A.state.sel = null;
+      const n = !opts.trusted && A.foreignCode ? A.foreignCode(obj.doc) : 0;
+      A.state.anim = healDoc(n ? A.withoutCode(obj.doc) : obj.doc); A.state.mode = 'anim'; A.state.sel = null;
       A.cacheDocImages(A.state.anim);
+      if (n) { setTimeout(() => A.askRunCode(obj, n), 0); return 'Project opened without its custom code.'; }
       return 'Project opened.';
     }
     const res = Paint.normalize(obj, true);

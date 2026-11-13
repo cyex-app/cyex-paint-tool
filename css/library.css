@@ -1,0 +1,35 @@
+/* cyex paints: library dialog extras (search results, Similar, My library) and the code editor.
+   Link after app.css. Tokens only (css/tokens.css). */
+
+/* ---------- library cards with tools ---------- */
+.libcount { margin-top: -6px; }
+.libhead { display: flex; align-items: center; gap: 8px; }
+.libhead .label { flex: 1; }
+.cardwrap { position: relative; display: flex; min-width: 0; }
+.cardwrap > .card { flex: 1; min-width: 0; }
+/* tools in the thumbnail's top-right corner: a card is a button, so they sit beside it, not inside */
+.cardtools { position: absolute; right: 12px; top: 12px; display: flex; gap: 2px; }
+.cardwrap .badge { position: absolute; left: 13px; top: 13px; padding: 1px 5px; font: 600 .66rem var(--font-mono); color: var(--text); background: var(--elevated); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); pointer-events: none; }
+.cardtools .icon-btn { background: var(--surface); }
+.cardtools .icon-btn.armed { color: var(--red); border-color: var(--red); }
+.navitem.mine svg { width: 14px; height: 14px; flex: none; }
+.libtools { flex-wrap: wrap; gap: 6px; }
+.libchip { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 10px; background: var(--accent-dim); border: 1px solid var(--accent-border); border-radius: var(--radius); color: var(--text); font-size: .82rem; }
+.libchip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- code editor ---------- */
+.code-dialog .code-top { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.code-preview { width: 100%; aspect-ratio: 4 / 1; display: block; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 10px 10px; }
+.code-dialog textarea.codeedit { min-height: 240px; max-height: 50vh; white-space: pre; }
+.code-dialog .tmpl { flex-wrap: wrap; gap: 4px; align-items: center; }
+.code-dialog .tmpl .label { margin-right: 4px; }
+.code-status { margin: -4px 0 0; }
+.code-wrap { gap: 4px; }
+.code-sig { font: .76rem var(--font-mono); color: var(--dim); }
+.code-dialog .split3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 640px) { .code-dialog .split3 { grid-template-columns: minmax(0, 1fr); } }
+.code-status.bad, .code-error { color: var(--red); }
+.code-help summary { cursor: pointer; font-size: .82rem; font-weight: 600; color: var(--muted); }
+.code-help ul { margin: 6px 0 0; padding-left: 18px; font-size: .78rem; color: var(--dim); display: flex; flex-direction: column; gap: 3px; }
+@media (max-width: 640px) { .code-dialog .code-top { grid-template-columns: minmax(0, 1fr); } }
+@media (forced-colors: active) { .cardwrap .badge, .libchip { forced-color-adjust: auto; } }

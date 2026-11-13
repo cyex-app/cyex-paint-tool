@@ -4,7 +4,7 @@ A local editor for 7TV name paints. No server, no install, nothing uploaded.
 
 **Open:** double-click `cyex-paints.html` (one self-contained file). `index.html` also works and loads the separate files in `css/` and `js/`.
 
-Code layout: `js/core.js` and `js/fx.js` (maths, colour, shared pixel helpers), `js/paint.js` (7TV static paints), `js/encode.js` (GIF/APNG), `js/library.js`, `js/more.js`, `js/elements.js` (layers, effects, scene elements), `js/engine.js` (rendering), `js/presets.js`, `js/ui.js` (controls), and `js/app/` (store, name rendering, editors, playback, export, dialogs, main).
+Code layout: `js/core.js` and `js/fx.js` (maths, colour, shared pixel helpers), `js/paint.js` (7TV static paints), `js/encode.js` (GIF/APNG), `js/library.js`, `js/more.js`, `js/packs/` (themed packs, see `js/packs/README.md`), `js/elements.js` (layers, effects, scene elements), `js/engine.js` (rendering), `js/presets.js`, `js/ui.js` (controls), and `js/app/` (store, name rendering, editors, playback, export, dialogs, main).
 
 **Rebuild the single file after editing the sources:**
 
@@ -29,8 +29,8 @@ Build one from layers, scene elements and effects, then export GIF or APNG, host
 - **Scene elements (7):** shapes (heart, star, moon, striped sun, planet, crown, note, cloud, orb and more), text and emoji, your own pictures,
   ribbons, mountains, a city skyline, lightning. Each can be copied (row, grid, scatter, ring) and animated
   (float, bounce, sway, orbit, figure eight, wander, drift, rise, fall, A to B) with spin, pulse and fade.
-- **Layers (46):** gradients incl. mesh gradient, patterns, noise and fluids, particles and light, materials.
-- **Effects (38):** colour, lighting and 3D shape, distortion, texture.
+- **Layers (141, plus 7 scene elements):** gradients incl. mesh gradient, patterns, geometric, noise and fluids, nature, space, particles and light, retro and tech, materials, surfaces and textiles.
+- **Effects (83):** colour, lighting and 3D shape, light, distortion, lens and warp, stylise, texture, glitch and retro.
 - **Colours:** effects use weighted palettes. Every colour has a strength slider that sets its share of the whole,
   plus smoothness and loop. Every layer also has colour tweaks (hue, saturation, brightness, contrast, tint),
   and the Paint panel can recolour everything at once.
@@ -51,4 +51,8 @@ Not affiliated with, endorsed by, or sponsored by 7TV or Twitch.
 - **Static paints:** Classic or Layered (7TV's gradients format with position, size, repeat, text weight, outline and text shadows).
 - **My paints** keeps many paints in this browser (Ctrl+S saves); **History** lists every step to jump back to.
 - **From image** takes palette colours from a picture; **Surprise me** in Presets makes a random paint.
+- **Search:** the Add layer and Add effect library ranks by name, tags and description, finds typos and similar words (metal finds chrome and gold), and every card has **Similar** to show look-alikes.
+- **My library:** upload pictures, save any layer or effect with its settings (the bookmark in its settings), or write your own layer or effect as a small JavaScript function with a live preview. It stays in this browser; Export and Import move it as a file. A paint that uses your code carries it, and code in someone else’s file only runs after you say yes.
+- **One scrollbar:** the editor columns stick in view, and a tall one scrolls along with the page.
+- **Quick check:** `node tools/check.js` renders every layer and effect without a browser and reports seams, blank output and slow items.
 - **Self-test:** open `cyex-paints-tests.html` after changes; it renders everything and compares it with `js/tests-baseline.js`.

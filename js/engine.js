@@ -57,6 +57,7 @@
     d.fps = FPS_OK.includes(Number(src.fps)) ? Number(src.fps) : 25;
     d.duration = Math.round(num(src.duration, 2, 0.4, 8) * 10) / 10;
     let dropped = 0;
+    const custom = registerCustom(src.custom); // before the layer filter, which needs the definitions
     const L = Array.isArray(src.layers) ? src.layers : [], F = Array.isArray(src.effects) ? src.effects : [];
     d.layers = L.filter((l) => l && PL.LAYERS[l.type] || (dropped++, false)).slice(0, 60).map((l) => {
       const n = newLayer(l.type, l);
@@ -75,6 +76,9 @@
     d.groups = (Array.isArray(src.groups) ? src.groups : []).filter((g) => g && typeof g.id === 'string').slice(0, 30).map((g) => ({ id: g.id.slice(0, 40), name: String(g.name || 'Group').slice(0, 64), visible: g.visible !== false, collapsed: !!g.collapsed }));
     const gids = new Set(d.groups.map((g) => g.id)); for (const l of d.layers) if (l.group && !gids.has(l.group)) delete l.group;
     d.tweak = sanitizeTweak(src.tweak);
+    // keep the code of the custom items this document uses, and nothing else
+    const used = new Set([...d.layers.map((l) => l.type), ...d.effects.map((e) => e.type)]);
+    for (const id of Object.keys(custom)) if (used.has(id)) d.custom[id] = custom[id];
     return { doc: d, dropped };
   }
   // keys: { path: [{ t, v, e }] }; paths are dotted and must start with params., xf. or be opacity
@@ -98,6 +102,82 @@
     }));
   }
 
+  // ---- custom code layers and effects (My library) ----
+  // A document carries the code it uses: doc.custom = { custom_<id>: { kind: 'layer' | 'effect', name, code, labels: [a, b, c] } },
+  // so a project renders anywhere it opens, the export worker included. Registering only builds the
+  // function; nothing runs until a frame renders. The app asks before it opens someone else's code.
+  //   layer:  body of function (u, v, t, p, o, c, H): write r, g, b, a (0..1) into o.
+  //   effect: body of function (o, u, v, t, p, c, H): o holds the pixel's r, g, b, a; change it.
+  // p has the palette (H.palette(f) writes its colour at f into o), p.speed (whole cycles per loop: use
+  // H.TAU * t * p.speed so loops stay seamless) and three sliders p.a, p.b, p.c (0..1).
+  // H.get(u, v) reads the image under the effect at any point (r, g, b, a).
+  const CUSTOM_ID = /^custom_[A-Za-z0-9_]{1,48}$/;
+  const customSeen = new Map(); // id -> code it was built from
+  function cleanCustom(src) {
+    const out = {};
+    if (!src || typeof src !== 'object') return out;
+    for (const [id, x] of Object.entries(src).slice(0, 40)) {
+      if (!CUSTOM_ID.test(id) || !x || typeof x !== 'object' || typeof x.code !== 'string' || !['layer', 'effect'].includes(x.kind)) continue;
+      const labels = (Array.isArray(x.labels) ? x.labels : []).slice(0, 3).map((l) => String(l ?? '').slice(0, 24));
+      out[id] = { kind: x.kind, name: String(x.name || 'Custom').slice(0, 64), code: x.code.slice(0, 20000), labels };
+    }
+    return out;
+  }
+  function customParams(labels) {
+    const P = PL.P, l = (i, d) => (labels && labels[i]) || d;
+    return [P.pal('rainbowLoop', true), P.speed(1), P.range('a', l(0, 'Value A'), 0, 1, 0.01, 0.5), P.range('b', l(1, 'Value B'), 0, 1, 0.01, 0.5), P.range('c', l(2, 'Value C'), 0, 1, 0.01, 0.5)];
+  }
+  // Compiles the code. Returns { fn } or { error } (a syntax error, with the browser's message).
+  function compileCustom(kind, code) {
+    try { return { fn: kind === 'layer' ? new Function('u', 'v', 't', 'p', 'o', 'c', 'H', code) : new Function('o', 'u', 'v', 't', 'p', 'c', 'H', code) }; }
+    catch (e) { return { error: e.message || String(e) }; }
+  }
+  function helpers() {
+    return { TAU: Math.PI * 2, clamp, fract, mix: PL.mix, smoothstep: PL.smoothstep, tri: PL.tri, noise: PL.vnoise, fbm: PL.fbm, hash: PL.hash2, hsv: PL.hsvToRgb, luma: PL.luma };
+  }
+  const fin = (o) => { for (let k = 0; k < 4; k++) o[k] = Number.isFinite(o[k]) ? clamp(o[k]) : 0; };
+  // Builds and registers the definitions; a definition that fails to compile draws nothing and keeps its error.
+  function registerCustom(src) {
+    const list = cleanCustom(src);
+    for (const [id, x] of Object.entries(list)) {
+      const key = x.kind + '\n' + x.labels.join('\n') + '\n' + x.code;
+      if (customSeen.get(id) === key && (x.kind === 'layer' ? PL.LAYERS[id] : PL.EFFECTS[id])) continue;
+      customSeen.set(id, key);
+      const built = compileCustom(x.kind, x.code), fn = built.fn, H = helpers();
+      const def = { id, name: x.name, cat: 'My library', desc: 'Your own code.', tags: ['custom', 'code', 'my library'], custom: true, error: built.error || null, params: customParams(x.labels) };
+      let failed = false;
+      const fail = (e) => { if (!failed) { failed = true; def.error = 'Runs with an error: ' + (e.message || String(e)); } };
+      if (x.kind === 'layer') {
+        let cur = null, curP = null;
+        H.palette = (f) => PL.lutAt(curP._stops, fract(f), cur);
+        def.sample = (u, v, t, p, o, c) => {
+          o[0] = o[1] = o[2] = 0; o[3] = 1;
+          if (!fn || failed) { o[3] = 0; return o; }
+          cur = o; curP = p;
+          try { fn(u, v, t, p, o, c, H); } catch (e) { fail(e); o[3] = 0; }
+          fin(o); return o;
+        };
+        PL.LAYERS[id] = def;
+      } else {
+        def.run = (buf, W, Hh, t, p, c) => {
+          if (!fn || failed) return buf;
+          const out = new Float32Array(buf.length), o = [0, 0, 0, 0], g = [0, 0, 0, 0];
+          let cur = o;
+          H.palette = (f) => PL.lutAt(p._stops, fract(f), cur);
+          H.get = (u, v) => PL.fx.bilinear(buf, W, Hh, u * W, v * Hh, g, false);
+          for (let y = 0, i = 0; y < Hh; y++) for (let x = 0; x < W; x++, i += 4) {
+            o[0] = buf[i]; o[1] = buf[i + 1]; o[2] = buf[i + 2]; o[3] = buf[i + 3]; cur = o;
+            try { fn(o, (x + 0.5) / W, (y + 0.5) / Hh, t, p, c, H); } catch (e) { fail(e); return buf; }
+            fin(o); out[i] = o[0]; out[i + 1] = o[1]; out[i + 2] = o[2]; out[i + 3] = o[3];
+          }
+          return out;
+        };
+        PL.EFFECTS[id] = def;
+      }
+    }
+    return list;
+  }
+
   function newLayer(type, over = {}) {
     const def = PL.LAYERS[type];
     return Object.assign({ id: PL.uid('l'), type, name: def.name, visible: true, blend: 'normal', opacity: 1 }, over, {
@@ -109,7 +189,7 @@
     return Object.assign({ id: PL.uid('e'), type, name: def.name, visible: true }, over, { params: fixParams(def, over.params) });
   }
   function blankDoc() {
-    return { name: 'Unnamed Paint', width: 256, height: 64, fps: 25, duration: 2, layers: [], effects: [], shadows: [], tweak: Object.assign({}, DEFAULT_TWEAK), groups: [] };
+    return { name: 'Unnamed Paint', width: 256, height: 64, fps: 25, duration: 2, layers: [], effects: [], shadows: [], tweak: Object.assign({}, DEFAULT_TWEAK), groups: [], custom: {} };
   }
   const frameCount = (doc) => Math.max(1, Math.round(doc.duration * doc.fps));
 
@@ -178,6 +258,7 @@
     return { def, p: prepParams(def, (at || e).params), keyed: hasKeys(e) ? e : null };
   }
   function compile(doc) {
+    if (doc.custom) registerCustom(doc.custom); // e.g. in the export worker, which gets the document as it is
     // groups are folders in the layer list; a hidden group hides its layers
     const hiddenGroups = new Set((doc.groups || []).filter((g) => g.visible === false).map((g) => g.id));
     return {
@@ -281,5 +362,5 @@
     return toImageData(renderBuf(cp, t, W || cp.W, H || cp.H, index), W || cp.W, H || cp.H);
   }
 
-  PL.Engine = { keyValue, itemAt, hasKeys, newLayer, newEffect, blankDoc, frameCount, compile, renderBuf, renderFrame, toImageData, defaults, fixParams, sanitizeDoc, sanitizeShadows, DEFAULT_XF, DEFAULT_TWEAK };
+  PL.Engine = { registerCustom, cleanCustom, compileCustom, CUSTOM_ID, keyValue, itemAt, hasKeys, newLayer, newEffect, blankDoc, frameCount, compile, renderBuf, renderFrame, toImageData, defaults, fixParams, sanitizeDoc, sanitizeShadows, DEFAULT_XF, DEFAULT_TWEAK };
 })(window.PL);

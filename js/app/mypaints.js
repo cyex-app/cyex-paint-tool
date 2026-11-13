@@ -121,7 +121,7 @@
 
   function openEntry(entry, close) {
     try {
-      const msg = entry.mode === 'anim' ? A.loadJson({ cyexPaintProject: 1, doc: clone(entry.data) }) : A.loadJson(clone(entry.data));
+      const msg = entry.mode === 'anim' ? A.loadJson({ cyexPaintProject: 1, doc: clone(entry.data) }, { trusted: true }) : A.loadJson(clone(entry.data));
       originId = entry.id; setTimeout(() => { originRef = A.state[A.state.mode]; });
       if (close) close();
       A.renderAll(); A.commit(`Opened ${short(entry.name)}`);

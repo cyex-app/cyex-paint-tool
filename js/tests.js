@@ -42,12 +42,46 @@
 
     // ---------- loop seams ----------
     const seam = (doc) => { const cp = E.compile(doc); return maxDiff(E.renderBuf(cp, 0, 96, 24, 0), E.renderBuf(cp, 1, 96, 24, 0)); };
-    for (const id in PL.LAYERS) { if (STEPPED.has('L:' + id)) continue; await run('Loop seams', 'layer ' + id, () => { const d = seam(Object.assign(E.blankDoc(), { layers: [E.newLayer(id)] })); return d < 0.02 || `jump of ${d.toFixed(3)} at the loop point`; }); }
-    for (const id in PL.EFFECTS) { if (STEPPED.has('E:' + id)) continue; await run('Loop seams', 'effect ' + id, () => { const d = seam(Object.assign(E.blankDoc(), { layers: [E.newLayer('linear')], effects: [E.newEffect(id)] })); return d < 0.02 || `jump of ${d.toFixed(3)}`; }); }
+    for (const id in PL.LAYERS) { if (STEPPED.has('L:' + id) || PL.LAYERS[id].stepped) continue; await run('Loop seams', 'layer ' + id, () => { const d = seam(Object.assign(E.blankDoc(), { layers: [E.newLayer(id)] })); return d < 0.02 || `jump of ${d.toFixed(3)} at the loop point`; }); }
+    for (const id in PL.EFFECTS) { if (STEPPED.has('E:' + id) || PL.EFFECTS[id].stepped) continue; await run('Loop seams', 'effect ' + id, () => { const d = seam(Object.assign(E.blankDoc(), { layers: [E.newLayer('linear')], effects: [E.newEffect(id)] })); return d < 0.02 || `jump of ${d.toFixed(3)}`; }); }
     for (const m of ['float', 'bounce', 'sway', 'orbit', 'figure8', 'wander', 'driftR', 'rise', 'fall', 'path']) {
       await run('Loop seams', 'element motion ' + m, () => { const d = seam(Object.assign(E.blankDoc(), { layers: [E.newLayer('shape', { params: { motion: m, layout: 'scatter', count: 5, pulse: 0.5, blink: 0.5 } })] })); return d < 0.02 || `jump of ${d.toFixed(3)}`; });
     }
     await run('Loop seams', 'keyframed values', () => { const d = seam(Object.assign(E.blankDoc(), { layers: [E.newLayer('shape', { params: { layout: 'single', motion: 'none' }, keys: { 'params.size': [{ t: 0, v: 0.2 }, { t: 0.6, v: 1 }], 'xf.rotate': [{ t: 0.3, v: -40 }, { t: 0.8, v: 40 }] } })] })); return d < 0.02 || `jump of ${d.toFixed(3)}`; });
+
+    // ---------- library: every item can be found and filed ----------
+    await run('Library', 'every layer and effect has a name, a known category and search tags', () => {
+      const bad = [];
+      for (const [store, cats, k] of [[PL.LAYERS, PL.LAYER_CATS, 'L'], [PL.EFFECTS, PL.EFFECT_CATS, 'E']]) {
+        for (const [id, d] of Object.entries(store)) {
+          if (d.custom) continue;
+          if (!d.name || !d.desc || !cats.includes(d.cat) || !Array.isArray(d.tags) || d.tags.length < 3) bad.push(k + ':' + id);
+        }
+      }
+      return !bad.length || 'missing: ' + bad.join(', ');
+    });
+    await run('Library', 'pack ids don’t clash', () => {
+      const names = new Map();
+      for (const d of Object.values(PL.LAYERS)) { const n = d.name.toLowerCase(); names.set(n, (names.get(n) || 0) + 1); }
+      const dup = [...names].filter(([, n]) => n > 1).map(([x]) => x);
+      return !dup.length || 'layers sharing a name: ' + dup.join(', ');
+    });
+    // ---------- custom code (My library) ----------
+    await run('Custom code', 'a code layer renders and loops', () => {
+      const { doc } = E.sanitizeDoc({ layers: [{ type: 'custom_t1' }], custom: { custom_t1: { kind: 'layer', name: 'T', code: 'H.palette(u * 2 - t * p.speed);' } } });
+      const cp = E.compile(doc), a = E.renderBuf(cp, 0, 32, 8), b = E.renderBuf(cp, 1, 32, 8);
+      return (doc.layers.length === 1 && maxDiff(a, b) < 1e-6 && a[3] === 1) || 'did not render or loop';
+    });
+    await run('Custom code', 'errors are caught and draw nothing', () => {
+      const { doc } = E.sanitizeDoc({ layers: [{ type: 'linear' }, { type: 'custom_t2' }], effects: [{ type: 'custom_t3' }], custom: { custom_t2: { kind: 'layer', code: 'not valid js(' }, custom_t3: { kind: 'effect', code: 'nope();' } } });
+      const out = E.renderBuf(E.compile(doc), 0.5, 16, 4);
+      const ok = PL.LAYERS.custom_t2.error && PL.EFFECTS.custom_t3.error && out.every(Number.isFinite);
+      return ok || 'an error escaped';
+    });
+    await run('Custom code', 'only used code is kept, bad ids are dropped', () => {
+      const { doc } = E.sanitizeDoc({ layers: [{ type: 'custom_t4' }], custom: { custom_t4: { kind: 'layer', code: 'o[0] = 1;' }, custom_unused: { kind: 'layer', code: '' }, 'bad id': { kind: 'layer', code: '' } } });
+      return JSON.stringify(Object.keys(doc.custom)) === '["custom_t4"]' || Object.keys(doc.custom).join(',');
+    });
 
     // ---------- keyframes, clip, groups ----------
     await run('Engine', 'keyframes interpolate and wrap', () => {

@@ -716,7 +716,13 @@
     // opens on its own and stays the way it was left.
     // a new selection always opens the settings panel, even if it was collapsed for the previous one
     const fresh = lastSettingsId !== item.id; lastSettingsId = item.id;
-    return panel(titleOf(kind, def, item), body, [dup, reset], { id: 'settingsPanel', key: 'settings', open: fresh || undefined });
+    // My library (userlib.js): save this item with its settings; custom code also shows its error and an editor
+    const save = A.saveToLibrary ? iconBtn('bookmark', 'Save to My library', () => A.saveToLibrary(kind, item), { cls: 'sm' }) : null;
+    if (def.custom) {
+      if (def.error) body.splice(1, 0, h('p', { class: 'hint code-error', role: 'status' }, 'Your code has a problem: ' + def.error));
+      if (A.editCustomInDoc) body.splice(1, 0, h('div', { class: 'row' }, btn('Edit code', () => A.editCustomInDoc(item), 'secondary small', 'code')));
+    }
+    return panel(titleOf(kind, def, item), body, [save, dup, reset].filter(Boolean), { id: 'settingsPanel', key: 'settings', open: fresh || undefined });
   }
 
   function fileToDataUrl(file, max) {

@@ -11,6 +11,7 @@ A local editor for 7TV name paints: static gradient paints (7TV classic and laye
 ## Build and test
 - `index.html` loads the separate files; `cyex-paints.html` is the single-file bundle people open. Rebuild after every source change:
   `powershell -ExecutionPolicy Bypass -File .\build.ps1` (also builds `cyex-paints-tests.html`).
+- **Quick check without a browser:** `node tools/check.js` (every per-pixel layer and effect) or `node tools/check.js js/packs/<name>.js` (one pack): NaN, loop seams, blank or static output, speed.
 - **Self-test:** open `cyex-paints-tests.html`. It renders every layer, effect and preset and compares pixel fingerprints with `js/tests-baseline.js`, and checks loop seams, keyframes, clip masks, groups, sanitising, the 7TV format, palettes, the encoders and the render worker. After an intentional visual change, press "Copy new baseline" and paste it into `js/tests-baseline.js`.
 - Claude's built-in browser pane opens project files as `data:` snapshots: relative CSS/JS don't load (test the bundles), `localStorage` throws (shim it for My paints tests), and files above ~512 KB don't open (the app bundle is ~520 KB; for pane testing strip leading whitespace and comment-only lines into a temporary copy inside the project folder, then delete it). Synthetic clicks don't move focus like real ones; discount focus results from them.
 
@@ -19,14 +20,17 @@ A local editor for 7TV name paints: static gradient paints (7TV classic and laye
 - `js/fx.js` shared pixel helpers (bilinear, remap, running-sum boxBlur, hueMatrix).
 - `js/paint.js` static 7TV paints: normalize (classic, layered `gradients[]` + `text`, API `data` wrapper), CSS exactly as the 7TV extension builds it, rasteriser, safe image URLs.
 - `js/encode.js` own GIF (median cut, LZW, change-only frames, per-frame palettes), animated WebP muxer, APNG, size estimate.
-- `js/library.js`, `js/more.js` per-pixel layers and effects; `js/elements.js` canvas-drawn scene elements with motion and copies; all motion uses whole cycles per loop so loops are seamless.
-- `js/engine.js` compile/render, blending, keyframes (`item.keys`, wrap across the loop end), clip masks, groups, `sanitizeDoc` (clamps everything loaded).
+- `js/library.js`, `js/more.js` per-pixel layers and effects; `js/packs/*.js` themed packs (geometric, nature, retro, stylise, surfaces), contract in `js/packs/README.md`, every item has search `tags`; `js/elements.js` canvas-drawn scene elements with motion and copies; all motion uses whole cycles per loop so loops are seamless.
+- `js/engine.js` compile/render, blending, keyframes (`item.keys`, wrap across the loop end), clip masks, groups, `sanitizeDoc` (clamps everything loaded), custom code items (`doc.custom`, ids `custom_*`, registered on sanitize and compile so the worker gets them).
+- `js/tags.js` search tags for built-in items and synonym groups.
 - `js/presets.js`, `js/surprise.js`, `js/render-worker.js` (engine scripts marked `data-engine` are re-used inside a Blob worker in the bundle).
 - `js/ui.js` the toolkit (panels, sliders, selects/listboxes, palette and stops editors, sortable, dialogs, toasts, tooltips, From image).
-- `js/app/*` the editor, sharing `PL.App = A`: store (state, history, persistence), namepaint, editors (static editor, preview, layered), anim-editor (layers, groups, settings, keyframe UI), timeline, playback, export, dialogs, mypaints, main (boot, header, shortcuts, focus restore). Modules call each other through `A` at call time only.
+- `js/app/*` the editor, sharing `PL.App = A`: store (state, history, persistence, `loadJson` with the custom-code trust gate), namepaint, editors (static editor, preview, layered), anim-editor (layers, groups, settings, keyframe UI), timeline, playback, export, dialogs, mypaints, search (ranked, typo-tolerant, synonyms, similar), userlib (My library: pictures, saved items, code editor, import/export, trust prompt), scroll (one page scroll; sticky columns that scroll with the page when taller than the window), main (boot, header, shortcuts, focus restore). Modules call each other through `A` at call time only.
 - New features get their own CSS file in `css/` linked from `index.html`.
 
 ## Things that bit us before
 - Re-renders must keep keyboard focus: `main.js` `focusDescriptor`/`restoreFocus` match by `data-id` + aria-label (prefix before ':'); in-place editors refocus their neighbour themselves.
 - `A.state.anim` / `A.state.static` are replaced on undo, presets and imports: never hold them in closures.
+- Custom code from a file that isn't the person's own (not in My library, not in the open paint) must never run without asking: `A.loadJson` strips it and `askRunCode` asks. My paints and saved state are trusted.
+- The app bundle is over the pane's ~512 KB limit: for pane tests strip pack scripts and comments into a temporary copy (the tests bundle includes the packs).
 - `sed -i` with `c\` or multi-line replacements in Git Bash joins lines and mangles regex escapes; use the Edit tool for anything but one-line substitutions.
