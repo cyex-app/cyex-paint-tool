@@ -1,0 +1,59 @@
+/* cyex paints: the chat preview mock and the layered paint editor.
+   Link after app.css. Tokens only (css/tokens.css, plus the chat tokens declared in app.css). */
+
+/* ---------- chat preview (previewPanel in js/app/editors.js) ---------- */
+.tchat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, currentcolor 12%, transparent); }
+.tmsg { display: block; padding: 1px 4px; border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.tts { margin-right: 6px; opacity: .6; font-variant-numeric: tabular-nums; }
+.tchat.no-ts .tts { display: none; }
+
+/* badges: small inline SVG squares, drawn here, no third-party artwork */
+.tbadges { display: inline-flex; gap: 3px; margin-right: 4px; vertical-align: middle; }
+.tbadges:empty { display: none; }
+.tbadge { display: block; width: 14px; height: 14px; flex: none; }
+.tbadge svg { display: block; width: 14px; height: 14px; }
+.tbadge rect { fill: currentcolor; }
+.tbadge path, .tbadge circle { fill: var(--on-solid); }
+.tbadge.mod { color: var(--green); }
+.tbadge.sub { color: var(--twitch); }
+.tbadge.vip { color: var(--gold); }
+.tbadge.mod path, .tbadge.vip path { fill: var(--chat-dark); }
+
+/* names: --c is the chat colour; on the light backdrop it is mixed toward the text colour for contrast */
+.twho { font-weight: 700; color: var(--c); }
+.twho[data-c='green'] { --c: var(--green); }
+.twho[data-c='cyan'] { --c: var(--cyan); }
+.twho[data-c='pink'] { --c: var(--pink); }
+.twho[data-c='yellow'] { --c: var(--yellow); }
+.twho[data-c='purple'] { --c: var(--purple); }
+.stagebox.light .twho[data-c] { color: color-mix(in srgb, var(--c) 55%, var(--chat-light-text)); }
+.tchat canvas { display: inline-block; vertical-align: middle; }
+
+/* emote placeholders: plain inline SVG blobs */
+.temote { display: inline-block; width: 20px; height: 20px; margin: -2px 2px; vertical-align: middle; }
+.temote svg { display: block; width: 100%; height: 100%; }
+.temote.a svg { fill: var(--yellow); }
+.temote.b svg { fill: var(--cyan); }
+.temote.c svg { fill: var(--pink); }
+.temote .k { fill: var(--chat-dark); }
+.temote .s { fill: none; stroke: var(--chat-dark); stroke-width: 2; stroke-linecap: round; }
+
+/* ---------- layered paint editor (layersPanel in js/app/editors.js) ---------- */
+.layer-card { border: 1px solid var(--border); background: var(--surface); }
+.layer-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
+.layer-toggle { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; min-height: 28px; padding: 0 4px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font: inherit; font-size: .85rem; font-weight: 600; text-align: left; cursor: pointer; }
+.layer-toggle:hover { background: var(--row-hover); }
+.layer-toggle svg { width: 14px; height: 14px; flex: none; color: var(--dim); transition: transform var(--fast) var(--ease); }
+.layer-toggle[aria-expanded='false'] svg { transform: rotate(-90deg); }
+.layer-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.layer-title small { color: var(--dim); font-size: var(--text-hint); font-weight: 400; }
+.layer-sw { display: block; width: 36px; height: 18px; flex: none; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 8px 8px; }
+.layer-sw i { display: block; width: 100%; height: 100%; background-position: center; }
+.layer-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-top: 1px solid var(--border); }
+
+@media (prefers-reduced-motion: reduce) {
+  .layer-toggle svg { transition: none; }
+}
+@media (forced-colors: active) {
+  .tbadge, .temote, .layer-sw { forced-color-adjust: none; }
+}
