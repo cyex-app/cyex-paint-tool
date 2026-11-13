@@ -7,6 +7,196 @@
   const $ = A.$; // store.js loads first
 
   // =====================================================================================
+  // Keyframes
+  // item.keys = { path: [{ t, v, e }] } on layers and effects; paths are 'opacity', 'xf.<k>',
+  // 'params.<k>' and 'params.<k>.colors.<i>.w' (palette strengths). t is 0..1 on whole frames.
+  // The playhead (A.now, A.seek, A.pause) lives in playback.js, which loads later: call at run time only.
+  // =====================================================================================
+  const getP = (o, path) => path.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o);
+  const setP = (o, path, v) => { const ps = path.split('.'); let x = o; for (let i = 0; i < ps.length - 1; i++) { if (x == null) return; x = x[ps[i]]; } if (x != null) x[ps[ps.length - 1]] = v; };
+  const MAX_KEYS = 32, MAX_PATHS = 40; // what sanitizeKeys keeps
+  const XF_LABELS = { scale: 'Scale', rotate: 'Rotate', ox: 'Offset x', oy: 'Offset y' };
+  const KF = {
+    EASES: [['ease', 'Ease'], ['linear', 'Linear'], ['hold', 'Hold'], ['in', 'Ease in'], ['out', 'Ease out']],
+    frames: () => E.frameCount(A.state.anim),
+    now: () => (A.now ? A.now() : { frame: 0, frames: KF.frames(), t: 0 }),
+    frameOf: (t) => { const n = KF.frames(); return PL.clamp(Math.round(t * n), 0, n - 1); },
+    snap: (t) => KF.frameOf(t) / KF.frames(),
+    list: (item, path) => (item.keys && Array.isArray(item.keys[path]) && item.keys[path].length ? item.keys[path] : null),
+    animated: (item, path) => !!KF.list(item, path),
+    paths: (item) => Object.keys(item.keys || {}).filter((p) => KF.animated(item, p)),
+    base: (item, path) => getP(item, path),
+    setBase: (item, path, v) => setP(item, path, v),
+    // the value shown at moment t (default: the playhead)
+    value(item, path, t) { const ks = KF.list(item, path); return ks ? E.keyValue(ks, t ?? KF.now().t) : getP(item, path); },
+    at(item, path, t) { const ks = KF.list(item, path); if (!ks) return null; const f = KF.frameOf(t); return ks.find((k) => KF.frameOf(k.t) === f) || null; },
+    // add or update the key at t (default: the playhead); returns { key, created } or null at the limit
+    put(item, path, v, t) {
+      t = KF.snap(t ?? KF.now().t);
+      const hit = KF.at(item, path, t);
+      if (hit) { hit.v = v; return { key: hit, created: false }; }
+      const ks = KF.list(item, path) || [];
+      if (ks.length >= MAX_KEYS) { toast(`A value can have up to ${MAX_KEYS} keys.`); return null; }
+      if (!ks.length && KF.paths(item).length >= MAX_PATHS) { toast(`Up to ${MAX_PATHS} values can be animated per layer.`); return null; }
+      const key = { t, v, e: 'ease' };
+      ks.push(key); ks.sort((a, b) => a.t - b.t);
+      item.keys = item.keys || {}; item.keys[path] = ks;
+      return { key, created: true };
+    },
+    remove(item, path, key) {
+      const ks = KF.list(item, path); if (!ks || !ks.includes(key)) return;
+      if (ks.length === 1) KF.clear(item, path); else ks.splice(ks.indexOf(key), 1);
+    },
+    // stop animating: the value at the playhead becomes the plain value
+    clear(item, path) {
+      if (!item.keys || !(path in item.keys)) return;
+      const v = KF.value(item, path);
+      delete item.keys[path];
+      if (Number.isFinite(v)) setP(item, path, Math.round(v * 1e4) / 1e4);
+      if (!Object.keys(item.keys).length) delete item.keys;
+    },
+    label(item, kind, path) {
+      if (path === 'opacity') return 'Opacity';
+      if (path.startsWith('xf.')) return XF_LABELS[path.slice(3)] || path.slice(3);
+      const m = /^params\.(\w+)(?:\.colors\.(\d+)\.w)?$/.exec(path);
+      if (!m) return path;
+      if (m[2] != null) return `Colour ${+m[2] + 1} strength`;
+      const def = kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
+      const pd = def && def.params.find((p) => p.k === m[1]);
+      return pd ? pd.l : m[1];
+    },
+  };
+
+  // Inline SVGs (not in the shared icon set): the key diamond and the clip arrow.
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function svg(paths, cls) {
+    const s = document.createElementNS(SVGNS, 'svg');
+    for (const [k, v] of [['viewBox', '0 0 24 24'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', '1.8'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) s.setAttribute(k, v);
+    if (cls) s.setAttribute('class', cls);
+    s.innerHTML = paths;
+    return s;
+  }
+  const DIAMOND = '<path class="o" d="M12 3.5 20.5 12 12 20.5 3.5 12Z"/><path class="i" d="M12 9.2 14.8 12 12 14.8 9.2 12Z"/>';
+  const CLIP = '<path d="M6 4v7a4 4 0 0 0 4 4h9"/><path d="m15 11 4 4-4 4"/>';
+
+  // Key buttons of the open settings panel, kept in step with the playhead.
+  let live = []; // { kb, item, path, sl }
+  function keyBtn(label, item, path, sl) {
+    const name = 'Keyframe for ' + label;
+    const kb = h('button', { type: 'button', class: 'icon-btn sm kf-btn', 'aria-label': name, 'data-tip': name, 'aria-pressed': 'false', onclick: () => toggleKey(item, path) }, svg(DIAMOND));
+    const x = { kb, item, path, sl };
+    kb._kf = x; live.push(x); syncKey(x);
+    return kb;
+  }
+  // off: not animated (small outline) · anim: animated, no key here (ring with a dot) · key: a key at this frame (filled)
+  function syncKey(x, t = KF.now().t) {
+    const anim = KF.animated(x.item, x.path), here = anim && !!KF.at(x.item, x.path, t);
+    const st = here ? 'key' : anim ? 'anim' : 'off';
+    if (x.kb.dataset.state === st) return;
+    x.kb.dataset.state = st;
+    x.kb.setAttribute('aria-pressed', String(here));
+    x.kb.dataset.hint = here ? 'Removes the key at this frame' : anim ? 'Animated. Adds a key at this frame' : 'Animates it: adds a key at this frame';
+  }
+  function toggleKey(item, path) {
+    const { t } = KF.now();
+    const here = KF.at(item, path, t);
+    if (here) KF.remove(item, path, here);
+    else if (!KF.put(item, path, KF.value(item, path, t), t)) return;
+    A.changed(true); keysChanged();
+  }
+  // don't fight the user: a slider being dragged or a number being typed keeps its value
+  const busy = (sl) => { const a = document.activeElement; return (sl.contains(a) && a.type === 'text') || !!sl.querySelector('input[type="range"]:active'); };
+  function refreshKeyUI() {
+    live = live.filter((x) => x.kb.isConnected);
+    const { t } = KF.now();
+    for (const x of live) {
+      syncKey(x, t);
+      if (x.sl && KF.animated(x.item, x.path) && !busy(x.sl)) x.sl.set(KF.value(x.item, x.path, t));
+    }
+  }
+  // after any key edit: key buttons, keyed sliders and the timeline. opts.focus: a key to focus in the timeline
+  function keysChanged(opts) { refreshKeyUI(); if (A.refreshTimeline) A.refreshTimeline(opts); }
+  document.addEventListener('paint:frame', () => refreshKeyUI()); // fired by playback.js on every frame change
+
+  // A slider whose value can be keyed: while it's animated, moving it sets the key at the playhead.
+  function kslider(label, item, path, opts) {
+    const sl = slider(label, KF.value(item, path), Object.assign({}, opts, {
+      onInput: (x) => {
+        if (KF.animated(item, path)) {
+          A.pause && A.pause();
+          const r = KF.put(item, path, x);
+          syncKey(kb._kf);
+          if (r && r.created && A.refreshTimeline) A.refreshTimeline();
+        } else KF.setBase(item, path, x);
+        opts.onInput && opts.onInput(x);
+      },
+      onCommit: (x) => { opts.onCommit && opts.onCommit(x); if (KF.animated(item, path)) keysChanged(); },
+    }));
+    const kb = keyBtn(label, item, path, sl);
+    sl.querySelector('.top').append(kb);
+    return sl;
+  }
+
+  // Palette strengths live inside the shared palette editor, so they're keyed from a row of chips under it.
+  function strengthKeys(item, k, pal) {
+    const row = h('div', { class: 'kf-str' });
+    row.rebuild = () => row.replaceChildren(h('span', { class: 'label' }, 'Animate colour strengths'), ...pal.colors.map((col, i) => {
+      const b = keyBtn(`colour ${i + 1} strength`, item, `params.${k}.colors.${i}.w`, null);
+      b.classList.add('kf-chip');
+      b.append(h('i', { style: { background: col.c } }), h('span', null, String(i + 1)));
+      return b;
+    }));
+    row.rebuild();
+    return row;
+  }
+
+  // =====================================================================================
+  // Groups: doc.groups = [{ id, name, visible, collapsed }], layer.group = id.
+  // A group's layers are kept next to each other in the stack.
+  // =====================================================================================
+  // joined: a layer that just entered its group moves next to the others (on top, or at the bottom).
+  function normalizeGroups(d, joined, atBottom) {
+    const L = d.layers;
+    if (joined && joined.group) {
+      const others = L.filter((l) => l !== joined && l.group === joined.group);
+      if (others.length) { L.splice(L.indexOf(joined), 1); L.splice(atBottom ? L.indexOf(others[0]) : L.indexOf(others[others.length - 1]) + 1, 0, joined); }
+    }
+    // every group's layers in one run, anchored at its topmost layer
+    const out = [], done = new Set();
+    for (let i = L.length - 1; i >= 0; i--) {
+      const l = L[i];
+      if (!l.group) { out.push(l); continue; }
+      if (done.has(l.group)) continue;
+      done.add(l.group);
+      for (let j = i; j >= 0; j--) if (L[j].group === l.group) out.push(L[j]);
+    }
+    out.reverse();
+    if (out.every((l, i) => l === L[i])) return false;
+    L.splice(0, L.length, ...out);
+    return true;
+  }
+  // moves m next to target in the stack; below = under target in the list (top first)
+  function moveLayer(L, m, target, below) {
+    L.splice(L.indexOf(m), 1);
+    const ti = L.indexOf(target);
+    L.splice(below ? ti : ti + 1, 0, m);
+  }
+  function newGroupName(d) { let n = d.groups.length + 1; while (d.groups.some((g) => g.name === 'Group ' + n)) n++; return 'Group ' + n; }
+  function addGroup(d, withLayer) {
+    if (d.groups.length >= 30) { toast('A paint can have up to 30 groups.'); return null; }
+    const g = { id: PL.uid('g'), name: newGroupName(d), visible: true, collapsed: false };
+    d.groups.push(g);
+    if (withLayer) { withLayer.group = g.id; normalizeGroups(d, withLayer); }
+    return g;
+  }
+  function ungroup(d, g) {
+    d.groups.splice(d.groups.indexOf(g), 1);
+    for (const l of d.layers) if (l.group === g.id) delete l.group;
+    A.renderEditor(); A.changed(true);
+    toast(`Ungrouped ${g.name}. Ctrl+Z brings it back.`);
+  }
+
+  // =====================================================================================
   // Animated editor
   // =====================================================================================
   const FPS = [[10, '10'], [20, '20'], [25, '25'], [33, '33'], [50, '50']];
@@ -56,20 +246,46 @@
     const colA = h('div', { class: 'col' }), colB = h('div', { class: 'col settings-col' });
     root.append(colA, colB);
 
-    // layers list (top layer first)
+    // layers list (top layer first), with group folders; layers of a collapsed group aren't listed
+    if (!Array.isArray(d.groups)) d.groups = [];
+    const gById = new Map(d.groups.map((g) => [g.id, g]));
+    for (const l of d.layers) if (l.group && !gById.has(l.group)) delete l.group;
+    if (normalizeGroups(d)) A.rt.dirty = true; // only hand-edited files have split groups
     const layerList = h('div', { class: 'list', role: 'list', 'aria-label': 'Layers, top first' });
     const items = [...d.layers].reverse();
-    if (!items.length) layerList.append(h('div', { class: 'empty', role: 'listitem' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
-    for (const l of items) layerList.append(listItem(l, 'layer', d.layers));
+    if (!items.length && !d.groups.length) layerList.append(h('div', { class: 'empty', role: 'listitem' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
+    const counts = new Map();
+    for (const l of d.layers) if (l.group) counts.set(l.group, (counts.get(l.group) || 0) + 1);
+    for (const g of d.groups) if (!counts.has(g.id)) layerList.append(groupRow(d, g, 0)); // empty groups sit on top
+    const vis = []; // the layer rows in list order, for the drag indices
+    const shown = new Set();
+    for (const l of items) {
+      const g = l.group ? gById.get(l.group) : null;
+      if (g && !shown.has(g.id)) { shown.add(g.id); layerList.append(groupRow(d, g, counts.get(g.id))); }
+      if (g && g.collapsed) continue;
+      layerList.append(listItem(l, 'layer', d.layers, g)); vis.push(l);
+    }
     sortable(layerList, (from, to, kb) => {
-      const n = d.layers.length, a = n - 1 - from, b = n - 1 - to;
-      const [it] = d.layers.splice(a, 1); d.layers.splice(b, 0, it);
+      const m = vis[from], target = vis[to];
+      if (!m || !target || m === target) return;
+      const below = to > from;
+      if (kb && (m.group || '') !== (target.group || '')) {
+        // with the keyboard, crossing a group edge is a step of its own: leave the group in place, or join the next one
+        if (m.group) delete m.group;
+        else { m.group = target.group; normalizeGroups(d, m, !below); }
+      } else {
+        moveLayer(d.layers, m, target, below);
+        // a dragged layer joins the group of the row it was dropped on (or leaves its own)
+        if (!kb) { if (target.group) m.group = target.group; else delete m.group; }
+      }
+      normalizeGroups(d);
       A.renderEditor(); A.changed(true);
-      if (kb) $(`#editor [data-id="${it.id}"] .grip`)?.focus();
+      if (kb) { const f = () => $(`#editor [data-id="${m.id}"] .grip`)?.focus(); f(); setTimeout(() => setTimeout(f)); } // after sortable's own refocus
     });
     colA.append(panel('Layers', [layerList, h('div', { class: 'row' },
       btn('Add layer', () => A.openLibrary('layer'), 'secondary small', 'plus'),
-      btn('Add element', () => A.openLibrary('layer', 'Scene elements'), 'ghost small', 'sparkles'))], [], { count: d.layers.length }));
+      btn('Add element', () => A.openLibrary('layer', 'Scene elements'), 'ghost small', 'sparkles'),
+      newGroupBtn(d))], [], { count: d.layers.length }));
 
     const fxList = h('div', { class: 'list', role: 'list', 'aria-label': 'Effects, applied top to bottom' });
     if (!d.effects.length) fxList.append(h('div', { class: 'empty', role: 'listitem' }, icon('fx'), h('span', null, 'Effects run on the finished image, top to bottom: lighting, 3D, distortion, colour.')));
@@ -110,7 +326,56 @@
     ]);
   }
 
-  function listItem(item, kind, list) {
+  // "New group" starts with the selected layer when that layer isn't in a group yet
+  function newGroupBtn(d) {
+    const b = btn('New group', () => {
+      const s = findSel();
+      const g = addGroup(d, s && s.kind === 'layer' && !s.item.group ? s.item : null);
+      if (!g) return;
+      A.renderEditor(); A.changed(true);
+      setTimeout(() => $(`#editor [data-id="${g.id}"] .name`)?.focus({ preventScroll: true }));
+    }, 'ghost small', 'folder');
+    b.dataset.tip = 'New group'; b.dataset.hint = 'Starts with the selected layer. F2 renames it';
+    return b;
+  }
+
+  // A group's folder row: the name button collapses (click or Enter), F2 or double-click renames, Delete ungroups.
+  function groupRow(d, g, count) {
+    const text = h('span', null, g.name);
+    let clickT = 0;
+    const toggle = () => { g.collapsed = !g.collapsed; A.renderEditor(); A.changed(true); };
+    // a single click waits a moment, so a double-click can rename instead
+    const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-expanded': String(!g.collapsed), onclick: (e) => { clearTimeout(clickT); if (e.detail > 1) return; if (e.detail === 0) toggle(); else clickT = setTimeout(toggle, 220); } }, icon('chevron'), text);
+    nameEl.addEventListener('dblclick', () => {
+      clearTimeout(clickT);
+      const inp = h('input', { class: 'field rename', value: g.name, maxlength: 64, 'aria-label': 'Rename group' });
+      let finished = false;
+      const done = (ok, byKey) => {
+        if (finished) return; finished = true;
+        if (ok && inp.value.trim() && inp.value.trim() !== g.name) { g.name = inp.value.trim(); text.textContent = g.name; A.changed(true); }
+        inp.replaceWith(nameEl);
+        if (byKey) nameEl.focus();
+      };
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); done(true, true); } if (e.key === 'Escape') { e.preventDefault(); done(false, true); } e.stopPropagation(); });
+      inp.addEventListener('blur', () => done(true));
+      nameEl.replaceWith(inp); inp.focus(); inp.select();
+    });
+    return h('div', {
+      class: 'item ghdr' + (g.visible ? '' : ' off'), role: 'listitem', 'data-id': g.id,
+      onkeydown: (e) => {
+        if (e.target !== nameEl) return;
+        if (e.key === 'F2') { e.preventDefault(); nameEl.dispatchEvent(new MouseEvent('dblclick')); }
+        if (e.key === 'Delete') { e.preventDefault(); ungroup(d, g); }
+      },
+    },
+    h('span', { class: 'gicon', 'aria-hidden': 'true' }, icon('folder')), nameEl,
+    h('span', { class: 'meta' }, count === 1 ? '1 layer' : `${count} layers`),
+    h('span', { class: 'tools' },
+      iconBtn(g.visible ? 'eye' : 'eyeOff', 'Visible', () => { g.visible = !g.visible; A.renderEditor(); A.changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(g.visible), 'data-tip': g.visible ? 'Hide group' : 'Show group' } }),
+      iconBtn('trash', 'Delete group', () => ungroup(d, g), { cls: 'sm danger', attrs: { 'data-hint': 'Keeps its layers' } })));
+  }
+
+  function listItem(item, kind, list, grp) {
     const isSel = A.state.sel && A.state.sel.id === item.id;
     const def = kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
     const thumb = h('canvas', { class: 'thumb', width: 88, height: 22, 'data-thumb': item.id, 'aria-hidden': 'true' });
@@ -136,7 +401,7 @@
     if (kind === 'layer' && item.blend !== 'normal') meta.push((PL.BLENDS.find((b) => b[0] === item.blend) || [, ''])[1].split(' (')[0]);
     if (kind === 'layer' && item.opacity < 1) meta.push(Math.round(item.opacity * 100) + '%');
     const el = h('div', {
-      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off'), role: 'listitem', 'data-id': item.id,
+      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off') + (grp ? ' ingroup' : '') + (grp && !grp.visible ? ' ghidden' : '') + (kind === 'layer' && item.clip ? ' clipped' : ''), role: 'listitem', 'data-id': item.id,
       onclick: (e) => { if (e.target.closest('button, input')) return; select_(); },
       onkeydown: (e) => {
         if (e.target !== nameEl) return;
@@ -145,7 +410,9 @@
         if (e.key === 'Delete') { e.preventDefault(); remove(); }
       },
     },
-    grip(`Move ${item.name || def.name}`), thumb, nameEl,
+    grip(`Move ${item.name || def.name}`),
+    kind === 'layer' ? h('span', { class: 'clipmark', 'data-tip': 'Clipped to the layer below' }, svg(CLIP), h('span', { class: 'sr-only' }, 'Clipped to the layer below')) : null,
+    thumb, nameEl,
     meta.length ? h('span', { class: 'meta' }, meta.join(' · ')) : null,
     h('span', { class: 'tools' },
       iconBtn(item.visible ? 'eye' : 'eyeOff', 'Visible', () => { item.visible = !item.visible; A.renderEditor(); A.changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(item.visible), 'data-tip': item.visible ? 'Hide' : 'Show' } }),
@@ -155,11 +422,14 @@
     return el;
   }
 
-  function paramControl(pd, params, onInput, onCommit) {
+  // ctx = { item }: the layer or effect these params belong to, so range sliders and palette strengths can be keyed
+  function paramControl(pd, params, onInput, onCommit, ctx) {
     const v = params[pd.k];
     switch (pd.t) {
       case 'range': {
-        const sl = slider(pd.l, v, { min: pd.min, max: pd.max, step: pd.step, hint: pd.hint, onInput: (x) => { params[pd.k] = x; onInput(); }, onCommit });
+        const ro = { min: pd.min, max: pd.max, step: pd.step, hint: pd.hint };
+        const sl = ctx && pd.k !== 'seed' ? kslider(pd.l, ctx.item, 'params.' + pd.k, Object.assign(ro, { onInput: () => onInput(), onCommit }))
+          : slider(pd.l, v, Object.assign(ro, { onInput: (x) => { params[pd.k] = x; onInput(); }, onCommit }));
         if (pd.hint) sl.querySelector('.label').append(h('span', { class: 'qhint', 'data-tip': pd.hint, tabindex: '-1' }, '?'));
         if (pd.k === 'seed') sl.querySelector('.top').append(iconBtn('dice', 'New random seed', () => { params.seed = 1 + Math.floor(Math.random() * 999); sl.set(params.seed); onCommit(); }, { cls: 'sm' }));
         return sl;
@@ -173,7 +443,39 @@
         return labeled(pd.l, h('div', { class: 'stack tight' }, inp, quick));
       }
       case 'stops': return labeled(pd.l, stopsEditor(params[pd.k], (s, c) => { c ? onCommit() : onInput(); }, { palettes: true }));
-      case 'palette': return paletteEditor(params[pd.k], (pal, c) => { c ? onCommit() : onInput(); });
+      case 'palette': {
+        const pal = params[pd.k];
+        if (!ctx) return paletteEditor(pal, (p, c) => { c ? onCommit() : onInput(); });
+        const { item } = ctx, pre = `params.${pd.k}.colors.`;
+        let prev = pal.colors.slice(), prevW = pal.colors.map((c) => c.w), pending = false;
+        const keysRow = strengthKeys(item, pd.k, pal);
+        const ed = paletteEditor(pal, (p, c) => {
+          const cols = pal.colors;
+          const same = cols.length === prev.length && cols.every((x, i) => x === prev[i]);
+          let moved = false, keyed = false;
+          if (!same) {
+            // colours were added, removed, reordered or replaced: strength keys follow their colour
+            const old = {};
+            for (const path of Object.keys(item.keys || {})) if (path.startsWith(pre)) { old[path] = item.keys[path]; delete item.keys[path]; }
+            for (const [path, ks] of Object.entries(old)) { const j = cols.indexOf(prev[parseInt(path.slice(pre.length), 10)]); if (j >= 0) item.keys[pre + j + '.w'] = ks; }
+            if (item.keys && !Object.keys(item.keys).length) delete item.keys;
+            moved = Object.keys(old).length > 0;
+          } else {
+            // a strength slider moved while that strength is animated: it sets the key at the playhead
+            cols.forEach((col, i) => {
+              if (col.w === prevW[i] || !KF.animated(item, pre + i + '.w')) return;
+              A.pause && A.pause(); KF.put(item, pre + i + '.w', col.w); keyed = true;
+            });
+          }
+          prev = cols.slice(); prevW = cols.map((x) => x.w);
+          if (keyed) pending = true;
+          if (!same || c) keysRow.rebuild(); // colour count, order and swatches
+          c ? onCommit() : onInput();
+          if (moved || (pending && c)) { pending = false; keysChanged(); } else if (keyed) refreshKeyUI();
+        });
+        ed.append(keysRow);
+        return ed;
+      }
       case 'image': {
         const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', class: 'sr-only', onchange: async () => {
           const f = file.files[0]; if (!f) return;
@@ -202,39 +504,59 @@
     if (kind === 'layer') {
       top.push(h('div', { class: 'split' },
         labeled('Blend', select(PL.BLENDS, item.blend, (v) => { item.blend = v; A.renderEditor(); A.changed(true); }, 'Blend')),
-        slider('Opacity', item.opacity, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { item.opacity = v; onInput(); }, onCommit })));
+        kslider('Opacity', item, 'opacity', { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput, onCommit })));
+      // group membership and clipping
+      const d = A.state.anim;
+      if (!Array.isArray(d.groups)) d.groups = [];
+      const gOpts = [['', 'No group'], ...d.groups.map((g) => [g.id, g.name]), ['+new', 'New group']];
+      const clip = checkbox('Clip to layer below', !!item.clip, (v) => {
+        item.clip = v;
+        $(`#editor .item[data-id="${item.id}"]`)?.classList.toggle('clipped', v); // in place, so focus stays on the box
+        A.changed(true);
+      });
+      clip.dataset.tip = 'Clip to layer below'; clip.dataset.hint = 'Shows this layer only where the layer under it is drawn';
+      top.push(h('div', { class: 'split' },
+        labeled('Group', select(gOpts, item.group || '', (v) => {
+          if (v === '+new') { if (!addGroup(d, item)) { A.renderEditor(); return; } }
+          else if (v) { item.group = v; normalizeGroups(d, item); }
+          else { delete item.group; normalizeGroups(d); }
+          A.renderEditor(); A.changed(true);
+        }, 'Group')),
+        h('div', { class: 'ctl kf-clip' }, clip)));
     }
     const groups = new Map();
     for (const pd of def.params) {
       if (pd.show && !pd.show(item.params)) continue;
-      const c = paramControl(pd, item.params, onInput, onCommit);
+      const c = paramControl(pd, item.params, onInput, onCommit, { item });
       if (!c) continue;
       const g = groupOf(pd);
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(c);
     }
     const body = [...top];
+    // the keyframe timeline: one row per animated value (timeline.js)
+    if (A.timeline) body.push(group('Keyframes', [A.timeline(s)], { count: KF.paths(item).length || '' }));
     const names = [...groups.keys()].sort((a, b) => (GROUP_ORDER.indexOf(a) + 99) % 99 - (GROUP_ORDER.indexOf(b) + 99) % 99);
     for (const g of names) body.push(group(g, groups.get(g)));
     if (kind === 'layer') {
       const xf = item.xf;
       body.push(group('Move and transform', [
         h('div', { class: 'split' },
-          slider('Scale', xf.scale, { min: 0.1, max: 6, step: 0.05, onInput: (v) => { xf.scale = v; onInput(); }, onCommit }),
-          slider('Rotate', xf.rotate, { min: -180, max: 180, step: 1, unit: '°', onInput: (v) => { xf.rotate = v; onInput(); }, onCommit }),
-          slider('Offset x', xf.ox, { min: -1, max: 1, step: 0.01, onInput: (v) => { xf.ox = v; onInput(); }, onCommit }),
-          slider('Offset y', xf.oy, { min: -1, max: 1, step: 0.01, onInput: (v) => { xf.oy = v; onInput(); }, onCommit }),
+          kslider('Scale', item, 'xf.scale', { min: 0.1, max: 6, step: 0.05, onInput, onCommit }),
+          kslider('Rotate', item, 'xf.rotate', { min: -180, max: 180, step: 1, unit: '°', onInput, onCommit }),
+          kslider('Offset x', item, 'xf.ox', { min: -1, max: 1, step: 0.01, onInput, onCommit }),
+          kslider('Offset y', item, 'xf.oy', { min: -1, max: 1, step: 0.01, onInput, onCommit }),
           slider('Scroll x', xf.sx, { min: -8, max: 8, step: 1, hint: 'Full widths per loop', onInput: (v) => { xf.sx = v; onInput(); }, onCommit }),
           slider('Scroll y', xf.sy, { min: -8, max: 8, step: 1, hint: 'Full heights per loop', onInput: (v) => { xf.sy = v; onInput(); }, onCommit }),
           slider('Spin', xf.spin, { min: -8, max: 8, step: 1, hint: 'Turns per loop', onInput: (v) => { xf.spin = v; onInput(); }, onCommit })),
         checkbox('Wrap around the edges when moved', xf.tile, (v) => { xf.tile = v; onCommit(); }),
-        h('p', { class: 'hint' }, 'Moves the whole layer. Scroll and spin use whole numbers so the loop stays seamless.')]));
+        h('p', { class: 'hint' }, 'Moves the whole layer. Scroll and spin use whole numbers so the loop stays seamless. To move it along a path, key the offsets.')]));
       item.tweak = Object.assign({}, E.DEFAULT_TWEAK, item.tweak || {});
       body.push(group('Colour tweaks', A.tweakControls(item.tweak, 'Shift the colours of just this layer.')));
     }
     const hasXY = def.params.some((pd) => pd.k === 'x') || def.params.some((pd) => pd.k === 'cx' && /^Centre/.test(pd.l));
     if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it, or use the X and Y sliders below.'));
-    const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); A.renderEditor(); A.changed(true); }, { cls: 'sm' });
+    const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); delete item.keys; if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); A.renderEditor(); A.changed(true); }, { cls: 'sm' });
     const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); A.state.sel = { kind, id: c.id }; A.renderEditor(); A.changed(true); }, { cls: 'sm' });
     // One toggle: collapses every group while any is open, expands them all once all are closed.
     const heads = () => [...sec.querySelectorAll('.ghead')];
@@ -322,5 +644,5 @@
     for (const id of thumbCache.keys()) if (!alive.has(id)) thumbCache.delete(id);
   }
 
-  Object.assign(A, { findSel, renderAnimEditor, settingsPanel, fileToDataUrl, cacheImage, cacheDocImages, scheduleThumbs });
+  Object.assign(A, { findSel, renderAnimEditor, settingsPanel, fileToDataUrl, cacheImage, cacheDocImages, scheduleThumbs, kf: KF, keysChanged, refreshKeyUI, normalizeGroups });
 })(window.PL);
