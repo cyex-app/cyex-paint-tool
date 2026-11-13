@@ -602,10 +602,23 @@
     if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it.'));
     const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); renderEditor(); changed(true); }, { cls: 'sm' });
     const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); state.sel = { kind, id: c.id }; renderEditor(); changed(true); }, { cls: 'sm' });
-    const setAll = (open) => { for (const hd of document.querySelectorAll('#settingsPanel .ghead')) if ((hd.getAttribute('aria-expanded') === 'true') !== open) hd.click(); };
-    const collapseAll = iconBtn('collapse', 'Collapse all groups', () => setAll(false), { cls: 'sm' });
-    const expandAll = iconBtn('expand', 'Expand all groups', () => setAll(true), { cls: 'sm' });
-    return panel((kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name), body, [collapseAll, expandAll, dup, reset], { id: 'settingsPanel', key: 'settings' });
+    // One toggle: collapses every group while any is open, expands them all once all are closed.
+    const heads = () => [...sec.querySelectorAll('.ghead')];
+    const anyOpen = () => heads().some((hd) => hd.getAttribute('aria-expanded') === 'true');
+    const toggleAll = iconBtn('collapse', 'Collapse all groups', () => {
+      const open = !anyOpen();
+      for (const hd of heads()) if ((hd.getAttribute('aria-expanded') === 'true') !== open) hd.click();
+      syncToggle();
+    }, { cls: 'sm' });
+    const syncToggle = () => {
+      const label = anyOpen() ? 'Collapse all groups' : 'Expand all groups';
+      toggleAll.replaceChildren(icon(anyOpen() ? 'collapse' : 'expand'));
+      toggleAll.setAttribute('aria-label', label); toggleAll.dataset.tip = label;
+    };
+    const sec = panel((kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name), body, [toggleAll, dup, reset], { id: 'settingsPanel', key: 'settings' });
+    sec.addEventListener('click', (e) => { if (e.target.closest('.ghead')) syncToggle(); }); // single groups change it too
+    syncToggle();
+    return sec;
   }
 
   function fileToDataUrl(file, max) {
