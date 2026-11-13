@@ -129,7 +129,7 @@
 
       const isUrl = g.function === 'URL';
       if (!isUrl && !g.stops.length) g.stops = defaultStops();
-      fields.append(labeled('Function', seg(LAYER_FUNCS, g.function, (v) => { g.function = v; if (v !== 'URL' && !g.stops.length) g.stops = defaultStops(); render(); A.changed(true); }, `Layer ${n} function`)));
+      fields.append(labeled('Function', seg(LAYER_FUNCS, g.function, (v) => { g.function = v; if (v !== 'URL' && !g.stops.length) g.stops = defaultStops(); swapCard(i, { i, group: `Layer ${n} function` }); A.changed(true); }, `Layer ${n} function`)));
       if (g.function === 'LINEAR_GRADIENT') fields.append(slider('Angle', g.angle ?? 90, { min: 0, max: 360, step: 1, unit: '°', onInput: (v) => { g.angle = v; on(); }, onCommit: done }));
       if (g.function === 'RADIAL_GRADIENT') fields.append(labeled('Shape', seg([['circle', 'Circle'], ['ellipse', 'Ellipse']], g.shape, (v) => { g.shape = v; on(); A.commit(); }, `Layer ${n} shape`)));
       if (g.function === 'CONIC_GRADIENT') fields.append(h('p', { class: 'hint' }, '7TV starts a conic gradient at the top and runs it clockwise, so there is no angle.'));
@@ -145,7 +145,7 @@
         slider('Width', g.size[0], Object.assign({}, pctOpts, { max: 4, onInput: (v) => { g.size[0] = v; on(); }, onCommit: done })),
         slider('Height', g.size[1], Object.assign({}, pctOpts, { max: 4, onInput: (v) => { g.size[1] = v; on(); }, onCommit: done })));
       fields.append(h('div', { class: 'sub' }, h('span', { class: 'label' }, 'Size, position and repeat'),
-        checkbox(isUrl ? 'Automatic size (the image’s own size)' : 'Automatic size (the whole name)', auto, (v) => { g.size = v ? null : [1, 1]; render(); A.changed(true); }),
+        checkbox(isUrl ? 'Automatic size (the image’s own size)' : 'Automatic size (the whole name)', auto, (v) => { g.size = v ? null : [1, 1]; swapCard(i); A.changed(true); }),
         sizeRow,
         h('div', { class: 'split' },
           slider('Position X', g.at[0], Object.assign({}, pctOpts, { onInput: (v) => { g.at[0] = v; on(); }, onCommit: done })),
@@ -162,28 +162,68 @@
 
       const dup = iconBtn('dup', `Duplicate layer ${n}`, () => {
         if (list.length >= Paint.MAX_LAYERS) { toast(`A paint can have up to ${Paint.MAX_LAYERS} layers.`); return; }
-        list.splice(i + 1, 0, PL.clone(g)); render(); A.changed(true);
+        list.splice(i + 1, 0, PL.clone(g)); render({ i: i + 1, first: true }); A.changed(true);
       }, { cls: 'sm' });
       const del = iconBtn('trash', `Remove layer ${n}`, () => {
-        list.splice(i, 1); render(); A.changed(true);
+        list.splice(i, 1); render(null); A.changed(true);
         const j = Math.min(i, list.length - 1);
         (body.querySelectorAll('[aria-label^="Remove layer"]:not([disabled])')[j] || add).focus();
       }, { cls: 'sm danger', attrs: { disabled: list.length <= 1 } });
       return h('div', { class: 'layer-card sortable-item', role: 'group', 'aria-label': `Layer ${n}` },
         h('div', { class: 'layer-head' }, grip(`Move layer ${n}`), toggle, h('span', { class: 'layer-sw' }, thumb), dup, del), fields);
     }
-    function render() {
+    // Focus survives a rebuild: remember the focused control (card index, group, label or position) and find it again.
+    const FOCUSABLE = 'button, input, select, textarea, [tabindex="0"]';
+    function captureFocus() {
+      const a = document.activeElement;
+      if (!a || !body.contains(a)) return null;
+      const card = a.closest('.layer-card');
+      if (!card) return null;
+      const spec = { i: [...body.children].indexOf(card), nth: [...card.querySelectorAll(FOCUSABLE)].indexOf(a), label: a.getAttribute('aria-label') };
+      const grp = a.closest('[role="radiogroup"]'), chk = a.closest('label.check');
+      if (grp) spec.group = grp.getAttribute('aria-label');
+      if (chk) spec.check = chk.textContent;
+      return spec;
+    }
+    function restoreFocus(spec) {
+      if (!spec || !body.children.length) return;
+      const card = body.children[Math.min(spec.i, body.children.length - 1)];
+      const all = [...card.querySelectorAll(FOCUSABLE)];
+      const ok = (x) => x && !x.disabled && x.offsetParent !== null;
+      let el = null;
+      if (spec.first) el = card.querySelector('.grip');
+      else if (spec.group) { const g = [...card.querySelectorAll('[role="radiogroup"]')].find((x) => x.getAttribute('aria-label') === spec.group); el = g && g.querySelector('[aria-checked="true"]'); }
+      else if (spec.check) { const l = [...card.querySelectorAll('label.check')].find((x) => x.textContent === spec.check); el = l && l.querySelector('input'); }
+      else if (spec.label) el = all.find((x) => x.getAttribute('aria-label') === spec.label);
+      if (!ok(el)) el = all[spec.nth];
+      if (!ok(el)) el = card.querySelector('.layer-toggle');
+      if (el) el.focus();
+    }
+    // Rebuild one card in place (a Function or size change only affects that card).
+    function swapCard(i, spec = captureFocus()) {
+      const old = body.children[i];
+      if (!old) { render(spec); return; }
+      body.replaceChild(layerCard(list[i], i), old);
+      restoreFocus(spec);
+    }
+    // Rebuild the whole list. spec: undefined keeps the focused control, null leaves focus alone, an object picks one.
+    function render(spec = captureFocus()) {
       body.textContent = '';
       list.forEach((g, i) => body.append(layerCard(g, i)));
-      if (add) add.disabled = list.length >= Paint.MAX_LAYERS;
+      if (add) {
+        const full = list.length >= Paint.MAX_LAYERS;
+        add.setAttribute('aria-disabled', String(full)); // not disabled: focus stays and the tooltip still shows
+        add.dataset.tip = full ? `A paint can have up to ${Paint.MAX_LAYERS} layers.` : '';
+      }
       if (sec) sec.setCount(list.length);
+      restoreFocus(spec);
     }
-    sortable(body, (from, to) => { const [x] = list.splice(from, 1); list.splice(to, 0, x); render(); A.changed(true); });
+    sortable(body, (from, to) => { const [x] = list.splice(from, 1); list.splice(to, 0, x); render(null); A.changed(true); });
     add = btn('Add layer', () => {
       if (list.length >= Paint.MAX_LAYERS) { toast(`A paint can have up to ${Paint.MAX_LAYERS} layers.`); return; }
-      list.unshift(newLayer()); render(); A.changed(true);
+      list.unshift(newLayer()); render({ i: 0, first: true }); A.changed(true);
     }, 'secondary small', 'plus');
-    render();
+    render(null);
     sec = panel('Gradient layers', [h('p', { class: 'hint' }, '7TV draws the first layer on top. A layer’s size and position are fractions of the name box.'), body, h('div', { class: 'row' }, add)], [], { count: list.length });
     return sec;
   }
@@ -270,12 +310,16 @@
         h('span', { class: 'ttext' }, parts.map((x) => (typeof x === 'string' ? x : x.e ? svgSpan('temote ' + x.e, EMOTES[x.e]) : mkMe('twho me'))))));
     }
     box.append(...names, chat);
-    box.append(h('span', { class: 'sr-only' }, 'Painted name preview of ' + A.state.preview.text));
-    return { el: p, names, chatNames, box };
+    const sr = h('span', { class: 'sr-only' }, 'Painted name preview of ' + A.state.preview.text);
+    box.append(sr);
+    return { el: p, names, chatNames, box, sr };
   }
 
   A.pv = null; // current preview handles
-  function refreshPreview() { if (A.state.mode === 'static') updateStaticPreview(); else A.rt.redraw = true; }
+  function refreshPreview() {
+    if (A.pv && A.pv.sr) A.pv.sr.textContent = 'Painted name preview of ' + A.state.preview.text;
+    if (A.state.mode === 'static') updateStaticPreview(); else A.rt.redraw = true;
+  }
 
   function updateStaticPreview() {
     if (!A.pv || A.state.mode !== 'static') return;

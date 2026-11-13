@@ -1,7 +1,7 @@
 /* cyex paints: library and presets dialogs. */
 (function (PL) {
   'use strict';
-  const { h, icon, btn, seg, dialog, toast } = PL.UI;
+  const { h, icon, iconBtn, btn, seg, dialog, toast } = PL.UI;
   const E = PL.Engine, Paint = PL.Paint, clone = PL.clone;
   const A = (PL.App = PL.App || {});
 
@@ -78,7 +78,7 @@
     let tab = A.state.mode;
     const host = h('div', { class: 'cards' });
     if (tab === 'anim') tab = 'scenes';
-    const tabs = seg([['static', 'Static gradients'], ['scenes', 'Scenes'], ['anim', 'Animated effects']], tab, (v) => { tab = v; render(); }, 'Preset type');
+    const tabs = seg([['static', 'Static gradients'], ['scenes', 'Scenes'], ['anim', 'Animated effects']], tab, (v) => { tab = v; hideSur(); render(); }, 'Preset type');
     let job = 0;
     const render = () => {
       host.textContent = '';
@@ -111,37 +111,48 @@
       }
     };
     // ---- Surprise me: a random paint for the current tab, previewed before it replaces anything ----
-    const surWrap = h('div', { class: 'surprise', hidden: true, role: 'group', 'aria-label': 'Surprise preview' });
-    let sur = null, stopPreview = () => {};
+    // The card's nodes are built once and reused, so rolling never moves focus and the live region keeps announcing.
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let paused = reduced, player = null, sur = null, lastRoll = 0;
+    const surLive = h('span', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
+    const swatch = h('div', { class: 'sw', 'aria-hidden': 'true', hidden: true });
+    const cv = h('canvas', { width: 256, height: 64, 'aria-hidden': 'true', hidden: true });
+    const sname = h('b', { class: 'sname' }), smeta = h('span');
+    const pauseB = iconBtn('pause', 'Pause preview', () => { paused = !paused; syncPause(); if (player) player.setPaused(paused); }, { cls: 'sm spause' });
+    const syncPause = () => { pauseB.setAttribute('aria-pressed', String(paused)); pauseB.replaceChildren(icon(paused ? 'play' : 'pause')); };
+    syncPause();
+    const useB = btn('Use this', () => use(), 'primary small');
+    const againB = btn('Another', () => roll(), 'secondary small', 'dice');
+    const surWrap = h('div', { class: 'surprise', hidden: true, role: 'group', 'aria-label': 'Surprise preview' },
+      h('div', { class: 'sprev' }, swatch, cv, pauseB),
+      h('div', { class: 'sinfo' }, sname, smeta),
+      h('div', { class: 'sact' }, useB, againB, h('span', { class: 'hint' }, 'Press R for another.')));
     const kindOfTab = () => (tab === 'static' ? 'static' : 'anim');
-    const roll = (kind) => {
+    const stopPreview = () => { if (player) { player.stop(); player = null; } };
+    const hideSur = () => { stopPreview(); sur = null; surWrap.hidden = true; surLive.textContent = ''; };
+    const roll = () => {
       const S = PL.Surprise;
       if (!S) { toast('Surprise me isn’t available.', 'error'); return; }
-      kind = kind || (sur && sur.kind) || kindOfTab();
+      const now = performance.now();
+      if (now - lastRoll < 150) return;
+      lastRoll = now;
+      const kind = kindOfTab();
       let item;
       try { item = kind === 'static' ? S.makeStatic() : S.make(); }
       catch (e) { toast('Couldn’t make a paint just now. Try again.', 'error'); return; }
       stopPreview();
       sur = { kind, item };
-      const name = h('b', { class: 'sname' }, item.name);
-      let prev, meta;
+      sname.textContent = item.name;
+      swatch.hidden = kind !== 'static'; cv.hidden = kind === 'static'; pauseB.hidden = kind === 'static';
       if (kind === 'static') {
-        prev = h('div', { class: 'sw', style: { backgroundImage: Paint.gradientCss(item) }, 'aria-hidden': 'true' });
-        meta = `${item.function === 'RADIAL_GRADIENT' ? 'Radial' : 'Linear'} · ${item.stops.length} stops${item.repeat ? ' · repeating' : ''}${item.shadows.length ? ' · shadow' : ''}`;
+        swatch.style.backgroundImage = Paint.gradientCss(item);
+        smeta.textContent = `${item.function === 'RADIAL_GRADIENT' ? 'Radial' : 'Linear'} · ${item.stops.length} stops${item.repeat ? ' · repeating' : ''}${item.shadows.length ? ' · shadow' : ''}`;
       } else {
-        prev = h('canvas', { width: 256, height: 64, 'aria-hidden': 'true' });
-        meta = item.layers.map((l) => PL.LAYERS[l.type].name).concat(item.effects.map((e) => PL.EFFECTS[e.type].name)).join(', ');
-        stopPreview = playPreview(prev, item);
+        smeta.textContent = item.layers.map((l) => PL.LAYERS[l.type].name).concat(item.effects.map((e) => PL.EFFECTS[e.type].name)).join(', ');
+        player = playPreview(cv, item, paused);
       }
-      surWrap.textContent = '';
-      surWrap.append(
-        h('div', { class: 'sprev' }, prev),
-        h('div', { class: 'sinfo', 'aria-live': 'polite' }, name, h('span', null, meta)),
-        h('div', { class: 'sact' },
-          btn('Use this', use, 'primary small'),
-          btn('Another', () => roll(), 'secondary small', 'dice'),
-          h('span', { class: 'hint' }, 'Press R for another.')));
       surWrap.hidden = false;
+      surLive.textContent = `${item.name}, ${kind === 'static' ? 'static gradient' : 'animated paint'}`;
     };
     const use = () => {
       if (!sur) return;
@@ -150,35 +161,59 @@
       A.state.sel = null;
       stopPreview(); d.close(); A.renderAll(); A.commit();
     };
-    const surBtn = btn('Surprise me', () => roll(kindOfTab()), 'secondary small', 'dice');
+    const surBtn = btn('Surprise me', () => roll(), 'secondary small', 'dice');
     surBtn.dataset.tip = 'Make a random paint for this tab'; surBtn.dataset.hint = 'Press R for another';
-    const d = dialog('Presets', [h('div', { class: 'row' }, tabs, surBtn, h('span', { class: 'hint' }, 'Picking a preset replaces the current paint of that type. Undo brings it back.')), surWrap, host], { wide: true, onClose: () => stopPreview() });
+    const d = dialog('Presets', [h('div', { class: 'row' }, tabs, surBtn, h('span', { class: 'hint' }, 'Picking a preset replaces the current paint of that type. Undo brings it back.')), surLive, surWrap, host], { wide: true, onClose: () => stopPreview() });
     if (!d.box.dataset.surprise) d.box.addEventListener('keydown', (e) => { // a second open of the dialog reuses the first, so bind once
       if (e.key.toLowerCase() !== 'r' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
-      if (e.target.closest && e.target.closest('input, textarea, [contenteditable]')) return;
-      e.preventDefault(); roll();
+      if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+      e.preventDefault();
+      if (!e.repeat) roll();
     });
     d.box.dataset.surprise = "1";
     render();
   }
 
   // Plays a document on a canvas, a frame at a time (every second frame, cached after the first pass).
-  // A still frame under reduced motion. Stops by itself once the canvas leaves the page. Returns a stop function.
-  function playPreview(cv, doc) {
-    let timer = 0;
-    const stop = () => clearInterval(timer);
+  // One requestAnimationFrame loop with a time gate; it idles while paused, while the tab is hidden and while the
+  // canvas is off screen. Starts paused (a still frame) when asked to, e.g. under reduced motion.
+  // Returns { stop, setPaused }.
+  function playPreview(cv, doc, startPaused) {
+    let raf = 0, last = 0, i = 0, n = 1, gap = 100, visible = true, alive = true, paused = !!startPaused, io = null, draw = () => {};
+    const stop = () => {
+      alive = false; cancelAnimationFrame(raf); raf = 0;
+      document.removeEventListener('visibilitychange', kick);
+      if (io) { io.disconnect(); io = null; }
+    };
+    function kick() {
+      if (!alive || raf || paused || document.hidden || !visible) return;
+      last = performance.now();
+      raf = requestAnimationFrame(tick);
+    }
+    function tick(now) {
+      raf = 0;
+      if (!alive) return;
+      if (!cv.isConnected) { stop(); return; }
+      if (paused || document.hidden || !visible) return; // kick() restarts it
+      if (now - last >= gap) {
+        last = now;
+        try { i = (i + 2) % n; draw(i); } catch (e) { stop(); return; }
+      }
+      raf = requestAnimationFrame(tick);
+    }
     try {
-      const d = Object.assign({}, doc, { width: 256, height: 64 }), cp = E.compile(d), n = E.frameCount(d), ctx = cv.getContext('2d'), cache = [];
-      const draw = (k) => { if (!cache[k]) cache[k] = E.renderFrame(cp, k); ctx.putImageData(cache[k], 0, 0); };
+      const d = Object.assign({}, doc, { width: 256, height: 64 }), cp = E.compile(d), ctx = cv.getContext('2d'), cache = [];
+      n = E.frameCount(d); gap = 2000 / d.fps;
+      draw = (k) => { if (!cache[k]) cache[k] = E.renderFrame(cp, k); ctx.putImageData(cache[k], 0, 0); };
       draw(Math.floor(n * 0.3));
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return stop;
-      let i = 0;
-      timer = setInterval(() => {
-        if (!cv.isConnected) { stop(); return; }
-        try { i = (i + 2) % n; draw(i); } catch (e) { stop(); }
-      }, 2000 / d.fps);
+      document.addEventListener('visibilitychange', kick);
+      if (typeof IntersectionObserver === 'function') {
+        io = new IntersectionObserver((es) => { visible = es[es.length - 1].isIntersecting; if (visible) kick(); });
+        io.observe(cv);
+      }
+      kick();
     } catch (e) { stop(); }
-    return stop;
+    return { stop, setPaused: (p) => { paused = !!p; if (paused) { cancelAnimationFrame(raf); raf = 0; } else kick(); } };
   }
 
   Object.assign(A, { openLibrary, openPresets });

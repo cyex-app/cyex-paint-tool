@@ -6,7 +6,8 @@
 
 /* ---------- surprise preview ---------- */
 .surprise { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 10px 16px; align-items: center; padding: 12px; background: var(--surface); border: 1px solid var(--border); animation: sur-in var(--base) var(--ease); }
-.surprise[hidden] { display: none; }
+.surprise .sprev { position: relative; }
+.surprise .spause { position: absolute; right: 4px; bottom: 4px; background: var(--surface); border: 1px solid var(--border-strong); }
 .surprise .sprev canvas, .surprise .sprev .sw { display: block; width: 100%; aspect-ratio: 4 / 1; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 8px 8px; forced-color-adjust: none; }
 .surprise .sinfo { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .surprise .sinfo b { font-size: 1.05rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

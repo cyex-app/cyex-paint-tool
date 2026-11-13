@@ -42,7 +42,9 @@
 .layer-card { border: 1px solid var(--border); background: var(--surface); }
 .layer-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
 .layer-toggle { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; min-height: 28px; padding: 0 4px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font: inherit; font-size: .85rem; font-weight: 600; text-align: left; cursor: pointer; }
-.layer-toggle:hover { background: var(--row-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .layer-toggle:hover { background: var(--row-hover); }
+}
 .layer-toggle svg { width: 14px; height: 14px; flex: none; color: var(--dim); transition: transform var(--fast) var(--ease); }
 .layer-toggle[aria-expanded='false'] svg { transform: rotate(-90deg); }
 .layer-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -57,3 +59,6 @@
 @media (forced-colors: active) {
   .tbadge, .temote, .layer-sw { forced-color-adjust: none; }
 }
+
+/* the Add layer button stays focusable at the layer cap, so it uses aria-disabled and keeps its tooltip */
+.btn[aria-disabled='true'] { opacity: .5; cursor: not-allowed; }

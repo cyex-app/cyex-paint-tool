@@ -1,7 +1,7 @@
 /* cyex paints: animated export (GIF, WebP, APNG, sprite sheet, name GIF), the size estimate and the export result. */
 (function (PL) {
   'use strict';
-  const { h, icon, btn, panel, slider, seg, checkbox, labeled, dialog, toast, download, slug } = PL.UI;
+  const { h, icon, iconBtn, btn, panel, slider, seg, checkbox, labeled, dialog, toast, download, slug } = PL.UI;
   const E = PL.Engine, Paint = PL.Paint, clone = PL.clone;
   const A = (PL.App = PL.App || {});
 
@@ -49,7 +49,7 @@
         const now = performance.now(); if (force || now - lastAnnounce > 1500) { status.textContent = txt; lastAnnounce = now; }
       };
       const frames = async () => {
-        const out = await renderFrames(doc, cp, job, (i, n) => update(`Rendering ${Math.min(n, i + 1)} / ${n}`));
+        const out = await renderFrames(doc, cp, job, (done, n) => update(`Rendering ${Math.min(n, done)} / ${n}`));
         if (job.cancel) throw new Error('cancelled');
         cancelB.disabled = true;
         update('Encoding…', true); await new Promise((r) => setTimeout(r, 20));
@@ -68,15 +68,23 @@
       }
     }
     // The one place frames get rendered: the worker renderer when it exists, else the main-thread loop.
+    // onProgress(done, total) is 1-based. A worker that fails before its first frame (e.g. 'worker-unavailable')
+    // falls back to the main-thread loop for the same export, without a message.
     async function renderFrames(doc, cp, job, onProgress) {
       if (PL.Render && PL.Render.available()) {
-        return PL.Render.frames(doc, { onProgress, isCancelled: () => job.cancel });
+        let started = false;
+        try {
+          return await PL.Render.frames(doc, { onProgress: (done, total) => { started = true; onProgress(done, total); }, isCancelled: () => job.cancel });
+        } catch (e) {
+          if (job.cancel || (e && e.message === 'cancelled')) throw new Error('cancelled');
+          if (started) throw e;
+        }
       }
       const out = [];
       for (let i = 0; i < cp.frames; i++) {
         if (job.cancel) throw new Error('cancelled');
         out.push(E.renderFrame(cp, i));
-        onProgress(i, cp.frames);
+        onProgress(i + 1, cp.frames);
         await new Promise((r) => setTimeout(r));
       }
       return out;
@@ -146,7 +154,7 @@
     exportBtns.push(expB, sheetB, nameB);
 
     // ---- size estimate: a few rendered frames, encoded and extrapolated, debounced ----
-    const est = h('span', { class: 'stat export-est' }, 'Estimated size: –');
+    const est = h('span', { class: 'stat export-est', role: 'status', 'aria-live': 'polite' }, 'Estimated size: –');
     let estTimer = 0, estSeq = 0, estSig = '';
     const sigOf = () => JSON.stringify([A.state.anim, g.format, g.colors, g.dither, g.alpha, g.diff, g.localPal, g.webpQuality, A.state.preview.color],
       (k, v) => (k === 'src' && typeof v === 'string' ? v.length : v));
@@ -156,20 +164,24 @@
       const doc = clone(A.state.anim), fmt = g.format;
       if (!doc.layers.some((l) => l.visible)) { estSig = ''; est.textContent = 'Estimated size: –'; return; }
       est.textContent = 'Estimated size: calculating…';
-      await new Promise((r) => setTimeout(r));
+      // wait for an idle moment, so the estimate never competes with typing or the preview
+      await new Promise((r) => (window.requestIdleCallback ? requestIdleCallback(() => r(), { timeout: 2000 }) : setTimeout(r, 50)));
       if (seq !== estSeq) return;
       try {
         const cp = E.compile(doc), n = cp.frames;
+        // sample frames are rendered small (at most 96×24, at most a quarter of the area); the size is scaled back up by area
+        const sc = Math.min(0.5, 96 / cp.W, 24 / cp.H), sw = Math.max(8, Math.round(cp.W * sc)), sh = Math.max(4, Math.round(cp.H * sc));
+        const areaRatio = (cp.W * cp.H) / (sw * sh);
         let idx;
         if (n <= 6) idx = [...Array(n).keys()];
         else if (fmt === 'gif') { const m = Math.max(1, Math.floor(n / 2) - 1); idx = [0, m, m + 1, m + 2, m + 3]; }
         else idx = [...new Set([0, Math.floor(n / 3), Math.floor((2 * n) / 3), n - 1])];
-        const fr = idx.map((i) => E.renderFrame(cp, i));
+        const fr = idx.map((i) => E.renderFrame(cp, i, sw, sh));
         const opts = fmt === 'gif' ? gifEncOpts(doc) : { delayMs: 1000 / doc.fps, quality: g.webpQuality };
         opts.total = n;
         const bytes = await PL.Encode.estimateSize(fr, fmt, opts);
         if (seq !== estSeq) return;
-        est.textContent = 'Estimated size: ~' + PL.fmtBytes(bytes);
+        est.textContent = 'Estimated size: ~' + PL.fmtBytes(bytes * areaRatio);
       } catch (e) {
         if (seq !== estSeq) return;
         estSig = '';
@@ -184,7 +196,7 @@
         const sg = sigOf();
         if (!force && sg === estSig) return;
         estSig = sg; runEstimate();
-      }, 600);
+      }, 900);
     }
     // paint edits end in A.updateOutput(); hook it once so any edit refreshes the estimate
     if (!A.updateOutput || !A.updateOutput.exportHooked) {
@@ -249,14 +261,39 @@
     host.textContent = '';
     if (!r.url) r.url = URL.createObjectURL(r.blob); // one URL per export, revoked when replaced
     const url = r.url;
-    const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: A.state.preview.color, backgroundImage: `url("${url}")`, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: r.shadows || A.state.anim.shadows }) } }, A.state.preview.text);
+    let paused = matchMedia('(prefers-reduced-motion: reduce)').matches; // reduced motion shows the first frame
+    const img = h('img', { alt: r.kind + ' export' });
+    const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: A.state.preview.color, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: r.shadows || A.state.anim.shadows }) } }, A.state.preview.text);
+    // r.still is a PNG of frame 0, drawn once from the export (drawImage uses an animated image's first frame)
+    const apply = () => {
+      const src = paused && r.still ? r.still : paused && !r.stillFailed ? null : url;
+      if (!src) return;
+      img.src = src;
+      if (sevenTv) sevenTv.style.backgroundImage = `url("${src}")`;
+    };
+    if (!r.still && !r.stillFailed) {
+      const probe = new Image();
+      probe.onload = () => {
+        try {
+          const c = h('canvas', { width: probe.naturalWidth || 1, height: probe.naturalHeight || 1 });
+          c.getContext('2d').drawImage(probe, 0, 0);
+          r.still = c.toDataURL('image/png');
+        } catch (e) { r.stillFailed = true; }
+        apply();
+      };
+      probe.onerror = () => { r.stillFailed = true; apply(); };
+      probe.src = url;
+    }
+    const pauseB = iconBtn('pause', 'Pause animation', () => { paused = !paused; sync(); apply(); }, { cls: 'sm' });
+    const sync = () => { pauseB.setAttribute('aria-pressed', String(paused)); pauseB.replaceChildren(icon(paused ? 'play' : 'pause')); };
+    sync(); apply();
     host.append(h('div', { class: 'result' },
-      h('img', { src: url, alt: r.kind + ' export' }),
+      img,
       h('div', { class: 'ctl grow' },
         h('span', { class: 'stat' }, `${r.kind} · ${r.w}×${r.h} · ${r.frames} frames · ${PL.fmtBytes(r.blob.size)}`),
         sevenTv ? h('div', { class: 'stagebox ' + A.state.preview.bg, style: { padding: '10px 12px', border: '1px solid var(--border)' } }, sevenTv) : null,
         sevenTv ? h('span', { class: 'hint' }, 'Shown exactly the way 7TV applies an image paint.') : null,
-        h('div', { class: 'row' }, btn('Download again', () => download(r.blob, r.name), 'ghost small', 'download')))));
+        h('div', { class: 'row' }, pauseB, btn('Download again', () => download(r.blob, r.name), 'ghost small', 'download')))));
   }
 
   Object.assign(A, { animOutput });

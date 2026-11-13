@@ -1,5 +1,4 @@
 /* cyex paints: export panel (format choice, primary button, size estimate). Tokens only. */
-.export-opts[hidden] { display: none; }
 .export-format { align-items: center; gap: 8px; }
 .export-grid .export-primary { grid-column: 1 / -1; justify-content: center; }
 .export-est { display: block; min-height: 1.2em; }
