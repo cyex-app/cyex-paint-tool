@@ -13,6 +13,57 @@
   $('#modeSeg').replaceWith(Object.assign(modeSeg, { id: 'modeSeg' }));
   $('#undoBtn').append(icon('undo')); $('#undoBtn').onclick = A.undo;
   $('#redoBtn').append(icon('redo')); $('#redoBtn').onclick = A.redo;
+  const ico = A.ico || icon; // mypaints.js adds the history and pencil icons
+
+  // History: a button next to Undo/Redo that lists every step, newest first.
+  const historyBtn = h('button', { type: 'button', class: 'btn secondary small', id: 'historyBtn', 'aria-label': 'Undo history', 'data-tip': 'History', 'data-hint': 'Jump to any earlier step', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' }, ico('history'));
+  $('#redoBtn').after(historyBtn);
+  function openHistory() {
+    const steps = A.history();
+    let kb = Math.max(0, steps.findIndex((x) => x.current));
+    let pop = null;
+    const choose = (i) => {
+      const step = steps[i];
+      PL.UI.closePop();
+      if (step && !step.current) A.jumpTo(step.index);
+      historyBtn.focus();
+    };
+    const items = steps.map((step, i) => h('button', { type: 'button', class: 'option hist', role: 'option', tabindex: '-1', 'aria-selected': String(step.current), 'aria-label': `${step.label}, ${A.fmtTime(step.time)}${step.current ? ', current' : ''}`, onclick: () => choose(i) },
+      h('span', { class: 'hmark' }, step.current ? icon('check') : null),
+      h('span', { class: 'hlabel' }, step.label),
+      h('time', { class: 'htime', title: A.fmtDate(step.time) }, A.fmtTime(step.time))));
+    const mark = () => {
+      items.forEach((b, i) => b.classList.toggle('kb', i === kb));
+      if (items[kb]) pop.setAttribute('aria-activedescendant', items[kb].id);
+    };
+    pop = PL.UI.popover(historyBtn, items, {
+      label: 'Undo history',
+      onKey: (e) => {
+        if (e.key === 'ArrowDown') kb = Math.min(items.length - 1, kb + 1);
+        else if (e.key === 'ArrowUp') kb = Math.max(0, kb - 1);
+        else if (e.key === 'Home') kb = 0;
+        else if (e.key === 'End') kb = items.length - 1;
+        else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); choose(kb); return; }
+        else if (e.key === 'Tab') { PL.UI.closePop(); historyBtn.focus(); return; }
+        else return;
+        e.preventDefault(); mark(); items[kb].scrollIntoView({ block: 'nearest' });
+      },
+    });
+    pop.classList.add('hist-pop');
+    items.forEach((b, i) => { b.id = pop.id + '-o' + i; });
+    mark();
+    pop.focus({ preventScroll: true });
+    items[kb]?.scrollIntoView({ block: 'center' });
+  }
+  historyBtn.onclick = () => (historyBtn.getAttribute('aria-expanded') === 'true' ? PL.UI.closePop() : openHistory());
+  historyBtn.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openHistory(); } });
+
+  // My paints: opens the saved-paint library (mypaints.js), placed before Presets.
+  if (A.openMyPaints) {
+    const myBtn = h('button', { type: 'button', class: 'btn secondary', id: 'myPaintsBtn', 'aria-label': 'My paints', 'data-tip': 'My paints', 'data-hint': 'Ctrl+S saves the open paint' }, icon('folder'), h('span', { class: 'lbl' }, 'My paints'));
+    myBtn.onclick = A.openMyPaints;
+    $('#presetsBtn').before(myBtn);
+  }
   $('#presetsBtn').append(icon('sparkles'), h('span', { class: 'lbl' }, 'Presets'));
   $('#presetsBtn').onclick = A.openPresets;
   const themeBtn = $('#themeBtn');
@@ -32,6 +83,8 @@
   document.addEventListener('keydown', (e) => {
     // only text entry counts as typing; sliders, checkboxes and colour pickers keep the shortcuts
     const typing = e.target.closest && e.target.closest('input:not([type=range]):not([type=checkbox]):not([type=color]):not([type=file]), textarea, [contenteditable]');
+    // Ctrl+S saves to My paints; it always blocks the browser's own Save page dialog
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); if (A.saveCurrent) A.saveCurrent(false); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? A.redo() : A.undo(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); A.redo(); }
     else if (e.key === ' ' && !e.defaultPrevented && A.state.mode === 'anim' && !typing && !e.target.closest('button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); A.togglePlay(); }
