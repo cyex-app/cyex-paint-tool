@@ -558,26 +558,11 @@
     if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it, or use the X and Y sliders below.'));
     const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); delete item.keys; if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); A.renderEditor(); A.changed(true); }, { cls: 'sm' });
     const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); A.state.sel = { kind, id: c.id }; A.renderEditor(); A.changed(true); }, { cls: 'sm' });
-    // One toggle: collapses every group while any is open, expands them all once all are closed.
-    const heads = () => [...sec.querySelectorAll('.ghead')];
-    const anyOpen = () => heads().some((hd) => hd.getAttribute('aria-expanded') === 'true');
-    const toggleAll = iconBtn('collapse', 'Collapse all groups', () => {
-      const open = !anyOpen();
-      for (const hd of heads()) if ((hd.getAttribute('aria-expanded') === 'true') !== open) hd.click();
-      syncToggle();
-    }, { cls: 'sm' });
-    const syncToggle = () => {
-      const label = anyOpen() ? 'Collapse all groups' : 'Expand all groups';
-      toggleAll.replaceChildren(icon(anyOpen() ? 'collapse' : 'expand'));
-      toggleAll.setAttribute('aria-label', label); toggleAll.dataset.tip = label;
-      toggleAll.disabled = !heads().length;
-    };
+    // No collapse-all button: the panel title already folds the whole settings panel, and each group
+    // opens on its own and stays the way it was left.
     // a new selection always opens the settings panel, even if it was collapsed for the previous one
     const fresh = lastSettingsId !== item.id; lastSettingsId = item.id;
-    const sec = panel(titleOf(kind, def, item), body, [toggleAll, dup, reset], { id: 'settingsPanel', key: 'settings', open: fresh || undefined });
-    sec.addEventListener('click', (e) => { if (e.target.closest('.ghead')) syncToggle(); }); // single groups change it too
-    syncToggle();
-    return sec;
+    return panel(titleOf(kind, def, item), body, [dup, reset], { id: 'settingsPanel', key: 'settings', open: fresh || undefined });
   }
 
   function fileToDataUrl(file, max) {

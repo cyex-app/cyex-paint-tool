@@ -415,3 +415,7 @@ h3.label { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .ptoggle svg, .ghead svg, .sortable-item { transition: none; }
 }
+/* header: every control the same 32 px height; icon-only buttons are 32 px squares */
+.topbar-tools > .btn, .topbar-tools > .icon-btn { height: 32px; }
+.topbar-tools > .btn.small, .topbar-tools > .icon-btn { width: 32px; min-width: 32px; padding: 0; }
+.topbar-tools > .btn.small svg, .topbar-tools > .icon-btn svg { width: 16px; height: 16px; }
