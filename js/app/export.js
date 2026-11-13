@@ -1,4 +1,4 @@
-/* cyex paints: animated export (GIF, APNG, sprite sheet, name GIF) and the export result. */
+/* cyex paints: animated export (GIF, WebP, APNG, sprite sheet, name GIF), the size estimate and the export result. */
 (function (PL) {
   'use strict';
   const { h, icon, btn, panel, slider, seg, checkbox, labeled, dialog, toast, download, slug } = PL.UI;
@@ -10,6 +10,12 @@
   const setExport = (rec) => { if (lastExport && lastExport.url) URL.revokeObjectURL(lastExport.url); lastExport = rec; };
   function animOutput() {
     const d = A.state.anim, g = A.state.gif;
+    // saved states from before these options existed
+    g.format = ['gif', 'webp', 'apng'].includes(g.format) ? g.format : 'gif';
+    g.webpQuality = typeof g.webpQuality === 'number' ? g.webpQuality : 0.9;
+    g.diff = g.diff !== false;
+    g.localPal = !!g.localPal;
+    const FMT = { gif: 'GIF', webp: 'WebP', apng: 'APNG' };
     const result = h('div', { class: 'stack', id: 'exportResult' });
     if (lastExport) showResult(result, lastExport);
     const exportBtns = [];
@@ -33,6 +39,7 @@
       const old = [...b.childNodes];
       const hadFocus = document.activeElement === b || document.activeElement === document.body;
       exportBtns.forEach((x) => (x.disabled = true));
+      lockFormat(true);
       b.replaceChildren(h('span', { class: 'spinner' }), h('span', null, 'Rendering…'));
       cancelB.disabled = false;
       if (hadFocus) cancelB.focus(); // the button that had focus is now disabled; keep keyboard users on a live control
@@ -42,13 +49,7 @@
         const now = performance.now(); if (force || now - lastAnnounce > 1500) { status.textContent = txt; lastAnnounce = now; }
       };
       const frames = async () => {
-        const out = [];
-        for (let i = 0; i < cp.frames; i++) {
-          if (job.cancel) throw new Error('cancelled');
-          out.push(E.renderFrame(cp, i));
-          update(`Rendering ${i + 1} / ${cp.frames}`);
-          await new Promise((r) => setTimeout(r));
-        }
+        const out = await renderFrames(doc, cp, job, (i, n) => update(`Rendering ${Math.min(n, i + 1)} / ${n}`));
         if (job.cancel) throw new Error('cancelled');
         cancelB.disabled = true;
         update('Encoding…', true); await new Promise((r) => setTimeout(r, 20));
@@ -60,11 +61,30 @@
         const focusLost = document.activeElement === cancelB || document.activeElement === document.body;
         exporting = null;
         exportBtns.forEach((x) => (x.disabled = false));
+        lockFormat(false);
         b.replaceChildren(...old);
         cancelB.disabled = true;
         if (focusLost && b.isConnected) b.focus();
       }
     }
+    // The one place frames get rendered: the worker renderer when it exists, else the main-thread loop.
+    async function renderFrames(doc, cp, job, onProgress) {
+      if (PL.Render && PL.Render.available()) {
+        return PL.Render.frames(doc, { onProgress, isCancelled: () => job.cancel });
+      }
+      const out = [];
+      for (let i = 0; i < cp.frames; i++) {
+        if (job.cancel) throw new Error('cancelled');
+        out.push(E.renderFrame(cp, i));
+        onProgress(i, cp.frames);
+        await new Promise((r) => setTimeout(r));
+      }
+      return out;
+    }
+    const gifEncOpts = (doc) => ({
+      delayCs: Math.round(100 / doc.fps), colors: g.colors, dither: g.dither, alphaCut: g.alpha ? 128 : 0,
+      matte: g.alpha ? null : PL.hexToRgb(A.state.preview.color), diff: g.diff, localPalettes: g.localPal,
+    });
     function confirmHeavy(cp) {
       return new Promise((resolve) => {
         let answered = false;
@@ -77,17 +97,23 @@
     }
     const finishExport = (rec) => { setExport(rec); showResult(result, rec); download(rec.blob, rec.name); };
 
-    const gifB = btn('Export GIF', () => runExport(gifB, async ({ doc, cp, frames }) => {
+    const expB = btn('Export ' + FMT[g.format], () => runExport(expB, async ({ doc, cp, frames }) => {
+      const fmt = g.format;
+      if (fmt === 'apng' && !window.CompressionStream) { toast('This browser can’t make APNG files. Use a current Chrome, Edge or Firefox.', 'error'); return; }
       const fr = await frames();
-      const blob = PL.Encode.encodeGif(fr, { delayCs: Math.round(100 / doc.fps), colors: g.colors, dither: g.dither, alphaCut: g.alpha ? 128 : 0, matte: g.alpha ? null : PL.hexToRgb(A.state.preview.color) });
-      finishExport({ blob, name: slug(doc.name) + '.gif', kind: 'GIF', w: cp.W, h: cp.H, frames: fr.length, shadows: doc.shadows });
-    }), 'primary', 'film');
-    const apngB = btn('Export APNG', () => runExport(apngB, async ({ doc, cp, frames }) => {
-      if (!window.CompressionStream) { toast('This browser can’t make APNG files. Use a current Chrome, Edge or Firefox.', 'error'); return; }
-      const fr = await frames();
-      const blob = await PL.Encode.encodeApng(fr, { delayMs: 1000 / doc.fps });
-      finishExport({ blob, name: slug(doc.name) + '.png', kind: 'APNG', w: cp.W, h: cp.H, frames: fr.length, shadows: doc.shadows });
-    }), 'secondary', 'film');
+      let blob, ext;
+      if (fmt === 'gif') { blob = PL.Encode.encodeGif(fr, gifEncOpts(doc)); ext = '.gif'; }
+      else if (fmt === 'apng') { blob = await PL.Encode.encodeApng(fr, { delayMs: 1000 / doc.fps }); ext = '.png'; }
+      else {
+        try { blob = await PL.Encode.encodeWebp(fr, { delayMs: 1000 / doc.fps, quality: g.webpQuality }); }
+        catch (e) {
+          if (e && e.message === 'webp-unsupported') { toast('This browser can’t make WebP files. Use a current Chrome or Edge.', 'error'); return; }
+          throw e;
+        }
+        ext = '.webp';
+      }
+      finishExport({ blob, name: slug(doc.name) + ext, kind: FMT[fmt], w: cp.W, h: cp.H, frames: fr.length, shadows: doc.shadows });
+    }), 'primary export-primary', 'film');
     const pngB = btn('Frame PNG', () => { if (!A.rt.texCv) return; A.rt.texCv.toBlob((b) => download(b, `${slug(d.name)}-frame-${A.rt.frame + 1}.png`)); }, 'secondary', 'image');
     const sheetB = btn('Sprite sheet', () => runExport(sheetB, async ({ doc, cp, frames }) => {
       const fr = await frames();
@@ -114,16 +140,81 @@
         A.paintName(ctx, pad, pad, A.state.preview.text, px, tex, A.state.preview.color, doc.shadows, 1);
         return ctx.getImageData(0, 0, W, H);
       });
-      const blob = PL.Encode.encodeGif(out, { delayCs: Math.round(100 / doc.fps), colors: g.colors, dither: g.dither, alphaCut: 110 });
+      const blob = PL.Encode.encodeGif(out, { delayCs: Math.round(100 / doc.fps), colors: g.colors, dither: g.dither, alphaCut: 110, diff: g.diff, localPalettes: g.localPal });
       finishExport({ blob, name: slug(doc.name) + '-name.gif', kind: 'Name GIF', w: W, h: H, frames: out.length, isName: true });
     }), 'secondary', 'film');
-    exportBtns.push(gifB, apngB, sheetB, nameB);
+    exportBtns.push(expB, sheetB, nameB);
 
-    const gifOpts = h('div', { class: 'sub' }, h('span', { class: 'label' }, 'GIF options'),
-      h('div', { class: 'row' }, h('span', { class: 'hint' }, 'Colours'), seg([[64, '64'], [128, '128'], [256, '256']], g.colors, (v) => { g.colors = v; A.save(); }, 'GIF colours')),
-      checkbox('Dither (smoother gradients, larger file)', g.dither, (v) => { g.dither = v; A.save(); }),
-      checkbox('Keep transparent areas (the name colour shows through)', g.alpha, (v) => { g.alpha = v; A.save(); }),
-      h('p', { class: 'hint' }, 'GIF has 256 colours and on/off transparency. APNG keeps full colour and soft edges, and 7TV can show it too.'));
+    // ---- size estimate: a few rendered frames, encoded and extrapolated, debounced ----
+    const est = h('span', { class: 'stat export-est' }, 'Estimated size: –');
+    let estTimer = 0, estSeq = 0, estSig = '';
+    const sigOf = () => JSON.stringify([A.state.anim, g.format, g.colors, g.dither, g.alpha, g.diff, g.localPal, g.webpQuality, A.state.preview.color],
+      (k, v) => (k === 'src' && typeof v === 'string' ? v.length : v));
+    async function runEstimate() {
+      const seq = ++estSeq;
+      if (!est.isConnected || exporting) return;
+      const doc = clone(A.state.anim), fmt = g.format;
+      if (!doc.layers.some((l) => l.visible)) { estSig = ''; est.textContent = 'Estimated size: –'; return; }
+      est.textContent = 'Estimated size: calculating…';
+      await new Promise((r) => setTimeout(r));
+      if (seq !== estSeq) return;
+      try {
+        const cp = E.compile(doc), n = cp.frames;
+        let idx;
+        if (n <= 6) idx = [...Array(n).keys()];
+        else if (fmt === 'gif') { const m = Math.max(1, Math.floor(n / 2) - 1); idx = [0, m, m + 1, m + 2, m + 3]; }
+        else idx = [...new Set([0, Math.floor(n / 3), Math.floor((2 * n) / 3), n - 1])];
+        const fr = idx.map((i) => E.renderFrame(cp, i));
+        const opts = fmt === 'gif' ? gifEncOpts(doc) : { delayMs: 1000 / doc.fps, quality: g.webpQuality };
+        opts.total = n;
+        const bytes = await PL.Encode.estimateSize(fr, fmt, opts);
+        if (seq !== estSeq) return;
+        est.textContent = 'Estimated size: ~' + PL.fmtBytes(bytes);
+      } catch (e) {
+        if (seq !== estSeq) return;
+        estSig = '';
+        est.textContent = e && e.message === 'webp-unsupported' ? 'WebP isn’t available in this browser.' : 'Couldn’t estimate the size. Try again.';
+        if (!e || e.message !== 'webp-unsupported') console.warn(e);
+      }
+    }
+    function scheduleEstimate(force) {
+      clearTimeout(estTimer);
+      estTimer = setTimeout(() => {
+        if (!est.isConnected) return;
+        const sg = sigOf();
+        if (!force && sg === estSig) return;
+        estSig = sg; runEstimate();
+      }, 600);
+    }
+    // paint edits end in A.updateOutput(); hook it once so any edit refreshes the estimate
+    if (!A.updateOutput || !A.updateOutput.exportHooked) {
+      const orig = A.updateOutput;
+      const hooked = function () { const r = orig && orig.apply(this, arguments); if (A.exportDirty) A.exportDirty(); return r; };
+      hooked.exportHooked = true;
+      A.updateOutput = hooked;
+    }
+    A.exportDirty = () => scheduleEstimate(false);
+    const setOpt = (k) => (v) => { g[k] = v; A.save(); scheduleEstimate(false); };
+
+    const gifOpts = h('div', { class: 'sub export-opts' }, h('span', { class: 'label' }, 'GIF options'),
+      h('div', { class: 'row' }, h('span', { class: 'hint' }, 'Colours'), seg([[64, '64'], [128, '128'], [256, '256']], g.colors, setOpt('colors'), 'GIF colours')),
+      checkbox('Dither (smoother gradients, larger file)', g.dither, setOpt('dither')),
+      checkbox('Keep transparent areas (the name colour shows through)', g.alpha, setOpt('alpha')),
+      checkbox('Only store changed pixels (smaller)', g.diff, setOpt('diff')),
+      checkbox('Palette per frame (better colour, larger)', g.localPal, setOpt('localPal')),
+      h('p', { class: 'hint' }, 'GIF has 256 colours and on/off transparency. WebP and APNG keep full colour and soft edges, and 7TV can show them too.'));
+    const webpOpts = h('div', { class: 'sub export-opts' }, h('span', { class: 'label' }, 'WebP options'),
+      slider('Quality', g.webpQuality, { min: 0.3, max: 1, step: 0.01, scale: 100, unit: '%', onInput: (v) => { g.webpQuality = v; A.save(); scheduleEstimate(false); } }),
+      h('p', { class: 'hint' }, 'WebP is usually much smaller than GIF and keeps soft edges. 100 % is lossless.'));
+    const apngOpts = h('p', { class: 'hint export-opts' }, 'APNG is lossless with soft edges, but files are large. It has no options.');
+    const syncFormat = () => {
+      gifOpts.hidden = g.format !== 'gif'; webpOpts.hidden = g.format !== 'webp'; apngOpts.hidden = g.format !== 'apng';
+      if (expB.lastChild) expB.lastChild.textContent = 'Export ' + FMT[g.format];
+    };
+    const fmtSeg = seg([['gif', 'GIF'], ['webp', 'WebP'], ['apng', 'APNG']], g.format, (v) => { g.format = v; A.save(); syncFormat(); scheduleEstimate(false); }, 'Export format');
+    const lockFormat = (on) => fmtSeg.querySelectorAll('button').forEach((x) => (x.disabled = on));
+    syncFormat();
+    scheduleEstimate(true);
 
     const nsz = slider('Name size', A.state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { A.state.nameSize = v; A.save(); } });
 
@@ -145,11 +236,12 @@
     const openP = h('label', { class: 'btn secondary small' }, icon('folder'), 'Open project', file);
 
     return panel('Export', [
-      h('div', { class: 'export-grid' }, gifB, apngB, pngB, sheetB, nameB), h('div', { class: 'row' }, cancelB, status),
-      result, gifOpts, nsz,
+      h('div', { class: 'row export-format' }, h('span', { class: 'label' }, 'Format'), fmtSeg),
+      h('div', { class: 'export-grid' }, expB, pngB, sheetB, nameB), h('div', { class: 'row' }, cancelB, status),
+      result, gifOpts, webpOpts, apngOpts, est, nsz,
       h('div', { class: 'sub' }, h('span', { class: 'label' }, '7TV paint'),
         labeled('Where the image will be hosted', url),
-        h('p', { class: 'hint' }, 'Animated paints are URL paints: upload the GIF or APNG somewhere public, paste the link, and the JSON below is ready.'),
+        h('p', { class: 'hint' }, 'Animated paints are URL paints: upload the GIF, WebP or APNG somewhere public, paste the link, and the JSON below is ready.'),
         code, h('div', { class: 'row' }, saveP, openP)),
     ]);
   }

@@ -1,4 +1,4 @@
-/* Local encoders, no libraries: animated GIF (median-cut palette + LZW) and APNG (zlib via the
+/* Local encoders, no libraries: animated GIF (median-cut palette + LZW, frame differencing), animated WebP (browser stills, muxed here) and APNG (zlib via the
    browser's built-in CompressionStream). Frames are ImageData objects of equal size. */
 (function (PL) {
   'use strict';
@@ -9,6 +9,8 @@
     byte(b) { this.grow(1); this.buf[this.n++] = b; }
     bytes(a) { this.grow(a.length); this.buf.set(a, this.n); this.n += a.length; }
     u16(v) { this.byte(v & 255); this.byte((v >> 8) & 255); }
+    u24(v) { this.byte(v & 255); this.byte((v >> 8) & 255); this.byte((v >> 16) & 255); }
+    u32(v) { this.byte(v & 255); this.byte((v >>> 8) & 255); this.byte((v >>> 16) & 255); this.byte((v >>> 24) & 255); }
     str(s) { for (let i = 0; i < s.length; i++) this.byte(s.charCodeAt(i)); }
     result() { return this.buf.slice(0, this.n); }
   }
@@ -109,9 +111,17 @@
     out.byte(0);
   }
 
-  /* opts: { delayCs, colors (2..256), dither (bool), alphaCut (0..255), matte: [r,g,b] | null, loop } */
+  /* opts: { delayCs, colors (2..256), dither (bool), alphaCut (0..255), matte: [r,g,b] | null, loop,
+             diff (default true): store only pixels that changed since the previous frame,
+             localPalettes (default false): one median-cut palette per frame } */
   function encodeGif(frames, opts = {}) {
-    const W = frames[0].width, H = frames[0].height;
+    // Differencing only pays off when much of the paint stands still; for paints that move everywhere it
+    // can come out larger. Encoding is cheap next to rendering, so try both and keep the smaller file.
+    if (opts.diff !== false && opts.diff !== 'force' && frames.length > 1 && !opts._inner) {
+      const a = encodeGif(frames, Object.assign({}, opts, { diff: 'force', _inner: true })), b = encodeGif(frames, Object.assign({}, opts, { diff: false, _inner: true }));
+      return a.size <= b.size ? a : b;
+    }
+    const W = frames[0].width, H = frames[0].height, N = W * H;
     const alphaCut = opts.alphaCut ?? 128;
     // With a matte, translucent pixels are blended onto it; fully transparent ones stay transparent.
     const src = frames.map((f) => {
@@ -124,43 +134,103 @@
       }
       return o;
     });
+    const n = src.length;
+    const diff = opts.diff !== false && n > 1;
+    const local = !!opts.localPalettes;
     const hasAlpha = src.some((f) => { const d = f.data; for (let i = 3; i < d.length; i += 4) if (d[i] < alphaCut) return true; return false; });
-    const maxC = Math.max(2, Math.min(256, opts.colors || 256)) - (hasAlpha ? 1 : 0);
-    const pal = buildPalette(src, maxC, alphaCut);
-    const offset = hasAlpha ? 1 : 0;
-    let bits = 1; while ((1 << bits) < pal.length + offset) bits++;
-    const size = 1 << bits;
-    const map = makeMapper(pal, offset);
+    // Index 0 is the transparent colour whenever the paint has transparency or frames are differenced.
+    const useTrans = hasAlpha || diff;
+    const offset = useTrans ? 1 : 0;
+    const maxC = Math.max(2, Math.min(256, opts.colors || 256)) - offset;
+    const tableBits = (len) => { let b = 1; while ((1 << b) < len + offset) b++; return b; };
+    const putTable = (pal, bits) => {
+      for (let i = 0; i < (1 << bits); i++) {
+        const c = i < offset ? [0, 0, 0] : pal[i - offset] || [0, 0, 0];
+        out.byte(c[0]); out.byte(c[1]); out.byte(c[2]);
+      }
+    };
 
     const out = new ByteOut();
     out.str('GIF89a'); out.u16(W); out.u16(H);
-    out.byte(0x80 | (7 << 4) | (bits - 1)); out.byte(0); out.byte(0);
-    for (let i = 0; i < size; i++) {
-      const c = i < offset ? [0, 0, 0] : pal[i - offset] || [0, 0, 0];
-      out.byte(c[0]); out.byte(c[1]); out.byte(c[2]);
+    let gpal = null, gmap = null, gbits = 0;
+    if (local) { out.byte(7 << 4); out.byte(0); out.byte(0); }
+    else {
+      gpal = buildPalette(src, maxC, alphaCut); gbits = tableBits(gpal.length); gmap = makeMapper(gpal, offset);
+      out.byte(0x80 | (7 << 4) | (gbits - 1)); out.byte(0); out.byte(0);
+      putTable(gpal, gbits);
     }
-    if (frames.length > 1) { out.bytes([0x21, 0xff, 0x0b]); out.str('NETSCAPE2.0'); out.bytes([3, 1]); out.u16(opts.loop ?? 0); out.byte(0); }
+    if (n > 1) { out.bytes([0x21, 0xff, 0x0b]); out.str('NETSCAPE2.0'); out.bytes([3, 1]); out.u16(opts.loop ?? 0); out.byte(0); }
     const delay = Math.max(2, Math.round(opts.delayCs || 4));
-    const idx = new Uint8Array(W * H);
-    for (const f of src) {
-      const d = f.data;
+
+    // A frame is written one step late, so the next frame can still change its disposal (see below).
+    const flush = (r) => {
+      out.bytes([0x21, 0xf9, 4, (r.disposal << 2) | (useTrans ? 1 : 0)]); out.u16(Math.min(65535, r.delay)); out.byte(0); out.byte(0);
+      out.byte(0x2c); out.u16(r.x); out.u16(r.y); out.u16(r.w); out.u16(r.h);
+      let bits = gbits;
+      if (local) { bits = r.bits; out.byte(0x80 | (bits - 1)); putTable(r.pal, bits); } else out.byte(0);
+      let sub = r.full;
+      if (r.w !== W || r.h !== H) {
+        sub = new Uint8Array(r.w * r.h);
+        for (let y = 0; y < r.h; y++) sub.set(r.full.subarray((r.y + y) * W + r.x, (r.y + y) * W + r.x + r.w), y * r.w);
+      }
+      lzw(out, Math.max(2, bits), sub);
+    };
+
+    let pending = null;
+    for (let f = 0; f < n; f++) {
+      const d = src[f].data;
+      let cleared = f === 0 || !diff; // true: the canvas is empty when this frame is drawn
+      if (diff && f > 0) {
+        // Opaque -> transparent can't be expressed by leaving pixels alone. Disposal belongs to the frame it is set
+        // on and runs after that frame is shown, so the PREVIOUS frame gets disposal 2 (clear its whole rectangle,
+        // so it is widened to the full canvas) and this frame is then written in full onto the empty canvas.
+        const pd = src[f - 1].data;
+        for (let i = 3; i < d.length; i += 4) if (pd[i] >= alphaCut && d[i] < alphaCut) { cleared = true; break; }
+        if (cleared) { pending.disposal = 2; pending.x = 0; pending.y = 0; pending.w = W; pending.h = H; }
+      }
+      const pd = f > 0 ? src[f - 1].data : null;
+      const mask = new Uint8Array(N);
+      let x0 = W, y0 = H, x1 = -1, y1 = -1;
       for (let y = 0, p = 0; y < H; y++) {
         for (let x = 0; x < W; x++, p++) {
           const i = p * 4;
-          if (hasAlpha && d[i + 3] < alphaCut) { idx[p] = 0; continue; }
-          let r = d[i], g = d[i + 1], b = d[i + 2];
-          if (opts.dither) {
-            const n = BAYER[(y & 3) * 4 + (x & 3)] * 24;
-            r = Math.max(0, Math.min(255, r + n)); g = Math.max(0, Math.min(255, g + n)); b = Math.max(0, Math.min(255, b + n));
-          }
-          idx[p] = map(r, g, b);
+          if (d[i + 3] < alphaCut) continue;
+          if (!cleared && pd[i + 3] >= alphaCut && pd[i] === d[i] && pd[i + 1] === d[i + 1] && pd[i + 2] === d[i + 2]) continue;
+          mask[p] = 1;
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
         }
       }
-      // Graphic control: disposal 2 (restore to background) so transparent areas don't smear.
-      out.bytes([0x21, 0xf9, 4, (hasAlpha ? 2 << 2 : 1 << 2) | (hasAlpha ? 1 : 0)]); out.u16(delay); out.byte(0); out.byte(0);
-      out.byte(0x2c); out.u16(0); out.u16(0); out.u16(W); out.u16(H); out.byte(0);
-      lzw(out, Math.max(2, bits), idx);
+      let rect;
+      if (!diff) rect = [0, 0, W, H];
+      else if (x1 < 0) {
+        if (!cleared) { pending.delay += delay; continue; } // nothing changed: just show the last frame longer
+        rect = [0, 0, 1, 1];
+      } else rect = [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
+
+      let pal = gpal, map = gmap, bits = gbits;
+      if (local) {
+        const tmp = new Uint8ClampedArray(N * 4);
+        for (let p = 0; p < N; p++) if (mask[p]) { const i = p * 4; tmp[i] = d[i]; tmp[i + 1] = d[i + 1]; tmp[i + 2] = d[i + 2]; tmp[i + 3] = 255; }
+        pal = buildPalette([{ data: tmp }], maxC, 1); bits = tableBits(pal.length); map = makeMapper(pal, offset);
+      }
+      const full = new Uint8Array(N); // 0 = transparent (or colour 0 when nothing is transparent)
+      for (let y = 0, p = 0; y < H; y++) {
+        for (let x = 0; x < W; x++, p++) {
+          if (!mask[p]) continue;
+          const i = p * 4;
+          let r = d[i], g = d[i + 1], b = d[i + 2];
+          if (opts.dither) {
+            const k = BAYER[(y & 3) * 4 + (x & 3)] * 24;
+            r = Math.max(0, Math.min(255, r + k)); g = Math.max(0, Math.min(255, g + k)); b = Math.max(0, Math.min(255, b + k));
+          }
+          full[p] = map(r, g, b);
+        }
+      }
+      if (pending) flush(pending);
+      // Without differencing every frame is drawn on its own: restore to background (2) when there is transparency.
+      pending = { x: rect[0], y: rect[1], w: rect[2], h: rect[3], full, pal, bits, delay, disposal: !diff && hasAlpha ? 2 : 1 };
     }
+    if (pending) flush(pending);
     out.byte(0x3b);
     return new Blob([out.result()], { type: 'image/gif' });
   }
@@ -208,5 +278,87 @@
     return new Blob([out.result()], { type: anim ? 'image/apng' : 'image/png' });
   }
 
-  PL.Encode = { encodeGif, encodeApng };
+  // ---------- animated WebP (browser-made stills, muxed here) ----------
+  function stillMaker(w, h) {
+    const off = typeof OffscreenCanvas !== 'undefined';
+    const cv = off ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+    const ctx = cv.getContext('2d');
+    return async (frame, quality) => {
+      ctx.putImageData(frame, 0, 0);
+      let blob = null;
+      try {
+        blob = off ? await cv.convertToBlob({ type: 'image/webp', quality }) : await new Promise((res) => cv.toBlob(res, 'image/webp', quality));
+      } catch (e) { blob = null; }
+      if (!blob || blob.type !== 'image/webp') throw new Error('webp-unsupported');
+      return new Uint8Array(await blob.arrayBuffer());
+    };
+  }
+  // The image chunks (ALPH, VP8, VP8L) of a still WebP, as {type, data}.
+  function webpImageChunks(b) {
+    const tag = (p) => String.fromCharCode(b[p], b[p + 1], b[p + 2], b[p + 3]);
+    if (b.length < 20 || tag(0) !== 'RIFF' || tag(8) !== 'WEBP') throw new Error('webp-unsupported');
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), res = [];
+    for (let p = 12; p + 8 <= b.length;) {
+      const type = tag(p), size = dv.getUint32(p + 4, true);
+      if (type === 'ALPH' || type === 'VP8 ' || type === 'VP8L') res.push({ type, data: b.subarray(p + 8, Math.min(b.length, p + 8 + size)) });
+      p += 8 + size + (size & 1);
+    }
+    if (!res.some((c) => c.type !== 'ALPH')) throw new Error('webp-unsupported');
+    return res;
+  }
+  const riffChunk = (out, type, data) => { out.str(type); out.u32(data.length); out.bytes(data); if (data.length & 1) out.byte(0); };
+
+  async function encodeWebp(frames, opts = {}) {
+    const W = frames[0].width, H = frames[0].height;
+    const quality = Math.max(0, Math.min(1, opts.quality ?? 0.9));
+    const dur = Math.max(0, Math.min(0xffffff, Math.round(opts.delayMs ?? 40)));
+    const still = stillMaker(W, H);
+    const frameChunks = []; let alpha = false;
+    for (const f of frames) {
+      const cs = webpImageChunks(await still(f, quality));
+      if (cs.some((c) => c.type === 'ALPH' || c.type === 'VP8L')) alpha = true;
+      const o = new ByteOut();
+      o.u24(0); o.u24(0); o.u24(W - 1); o.u24(H - 1); o.u24(dur);
+      o.byte(0x02); // blending off (overwrite), do not dispose: every frame covers the whole canvas
+      for (const c of cs) riffChunk(o, c.type, c.data);
+      frameChunks.push(o.result());
+    }
+    const out = new ByteOut();
+    out.str('RIFF'); out.u32(0); out.str('WEBP');
+    const vp = new ByteOut();
+    vp.byte(0x02 | (alpha ? 0x10 : 0)); vp.u24(0); vp.u24(W - 1); vp.u24(H - 1);
+    riffChunk(out, 'VP8X', vp.result());
+    const an = new ByteOut(); an.u32(0); an.u16(opts.loop ?? 0);
+    riffChunk(out, 'ANIM', an.result());
+    for (const fc of frameChunks) riffChunk(out, 'ANMF', fc);
+    const bytes = out.result();
+    new DataView(bytes.buffer).setUint32(4, bytes.length - 8, true);
+    return new Blob([bytes], { type: 'image/webp' });
+  }
+
+  /* Predicted file size in bytes. Pass every frame, or (with opts.total = real frame count) a sample:
+     frames[0] is the first frame, the rest are consecutive frames from the middle of the loop. */
+  async function estimateSize(frames, format, opts = {}) {
+    const total = Math.max(frames.length, opts.total || frames.length);
+    const sampled = frames.length < total;
+    if (format === 'gif') {
+      if (!sampled && frames.length <= 6) return encodeGif(frames, opts).size;
+      let win;
+      if (sampled) win = frames.slice(1);
+      else { const m = Math.max(1, Math.floor(frames.length / 2) - 1); win = frames.slice(m, m + 4); }
+      const first = encodeGif([frames[0]], opts).size;
+      if (win.length < 2) return first * total;
+      const one = encodeGif([win[0]], opts).size, many = encodeGif(win, opts).size;
+      return Math.round(first + (total - 1) * Math.max(8, (many - one) / (win.length - 1)));
+    }
+    let pick = frames;
+    if (!sampled && frames.length > 4) {
+      const n = frames.length;
+      pick = [...new Set([0, Math.floor(n / 3), Math.floor((2 * n) / 3), n - 1])].map((i) => frames[i]);
+    }
+    const blob = format === 'webp' ? await encodeWebp(pick, opts) : await encodeApng(pick, opts);
+    return Math.round((blob.size / pick.length) * total);
+  }
+
+  PL.Encode = { encodeGif, encodeApng, encodeWebp, estimateSize };
 })(window.PL);
