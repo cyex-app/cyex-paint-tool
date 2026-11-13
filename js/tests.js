@@ -79,6 +79,26 @@
     await run('7TV format', 'colour packing round-trips', () => PL.decToCss(PL.hexAlphaToDec('#bf2b2b', 1)) === 'rgba(191, 43, 43, 1.000)' && PL.hexAlphaToDec('#bf2b2b', 1) === -1087689729);
     await run('7TV format', 'CSS matches the extension', () => { const css = PL.Paint.gradientCss(PL.Paint.normalize({ function: 'LINEAR_GRADIENT', angle: 90, stops: [{ at: 0.29, color: 255 }, { at: 0.86, color: -1087689729 }] })); return css === 'linear-gradient(90deg, rgba(0, 0, 0, 1.000) 28.999999999999996%, rgba(191, 43, 43, 1.000) 86%)' || css; });
 
+    // ---------- 7TV layered format ----------
+    await run('7TV format', 'layered paints round-trip through JSON', () => {
+      const src = { name: 'L', gradients: [
+        { function: 'LINEAR_GRADIENT', canvas_repeat: 'no-repeat', size: [0.5, 1], at: [1, 0], angle: 90, repeat: false, stops: [{ at: 0, color: -1 }, { at: 1, color: 255 }] },
+        { function: 'RADIAL_GRADIENT', canvas_repeat: 'repeat-x', size: [1, 1], at: [0, 0], shape: 'circle', repeat: false, stops: [{ at: 0, color: -16776961 }] }],
+        text: { weight: 9, stroke: { color: 255, width: 1.5 } }, shadows: [] };
+      const a = PL.Paint.normalize(src), json = JSON.parse(PL.Paint.toJson(a)), b = PL.Paint.normalize(json);
+      return (json.gradients && json.gradients.length === 2 && json.gradients[0].size[0] === 0.5 && json.text && json.text.weight === 9 && PL.Paint.toJson(b) === PL.Paint.toJson(a)) || PL.Paint.toJson(a).slice(0, 200);
+    });
+    await run('7TV format', 'a plain paint still exports the classic shape', () => { const j = JSON.parse(PL.Paint.toJson(PL.Paint.normalize({ function: 'LINEAR_GRADIENT', angle: 45, stops: [{ at: 0, color: 255 }] }))); return (j.function === 'LINEAR_GRADIENT' && !j.gradients) || JSON.stringify(j); });
+
+    // ---------- surprise ----------
+    if (PL.Surprise) {
+      await run('Surprise me', 'animated surprises are readable and loop', () => {
+        for (let i = 0; i < 6; i++) { const d = PL.Surprise.make(1000 + i), m = PL.Surprise.measure(d); if (!(m.luma >= 0.2 && m.luma <= 0.95)) return `${d.name}: luma ${m.luma}`; const s = seam(d); if (s > 0.02 && !d.layers.some((l) => STEPPED.has('L:' + l.type))) return `${d.name}: seam ${s.toFixed(3)}`; }
+        return true;
+      });
+      await run('Surprise me', 'static surprises are valid 7TV paints', () => { for (let i = 0; i < 6; i++) { const p = PL.Surprise.makeStatic(i + 5); const j = JSON.parse(PL.Paint.toJson(PL.Paint.normalize(p))); if (!(j.stops || j.gradients)) return JSON.stringify(j); } return true; });
+    }
+
     // ---------- palettes ----------
     await run('Palettes', 'strength sets the share', () => { const st = PL.paletteToStops({ colors: [{ c: '#ff0000', a: 1, w: 3 }, { c: '#0000ff', a: 1, w: 1 }], blend: 0, loop: false }); const red = st.filter((s) => s.color === '#ff0000').map((s) => s.at); return Math.abs(Math.max(...red) - 0.75) < 1e-9 || JSON.stringify(st); });
     await run('Palettes', 'looped palettes join end to start', () => { const st = PL.paletteToStops({ colors: [{ c: '#ff0000', a: 1, w: 1 }, { c: '#0000ff', a: 1, w: 1 }], blend: 1, loop: true }); return st[0].color === st[st.length - 1].color || JSON.stringify(st); });
@@ -95,7 +115,11 @@
       const mean = err / (cp.W * cp.H * 3); return mean < 6 || `mean colour error ${mean.toFixed(2)}`;
     });
     await run('Encoders', 'transparent GIF decodes', async () => !!(await decode(PL.Encode.encodeGif([new ImageData(32, 8)], { delayCs: 4 }))) || 'did not decode');
+    await run('Encoders', 'change-only GIF frames decode', async () => !!(await decode(PL.Encode.encodeGif(frames, { delayCs: 4, diff: 'force' }))) || 'did not decode');
+    await run('Encoders', 'per-frame palette GIF decodes', async () => !!(await decode(PL.Encode.encodeGif(frames, { delayCs: 4, localPalettes: true }))) || 'did not decode');
     if (window.CompressionStream) await run('Encoders', 'APNG decodes', async () => { const im = await decode(await PL.Encode.encodeApng(frames, { delayMs: 40 })); return (im && im.naturalWidth === cp.W) || 'did not decode'; });
+    if (PL.Render && PL.Render.available()) await run('Render worker', 'worker frames match the main thread', async () => { const r = await PL.Render.selfTest(); return r.ok || r.detail; });
+    else check('Render worker', 'worker available in this page', true, 'not available here (unbundled page or no OffscreenCanvas): exports use the main thread');
     if (PL.Encode.encodeWebp) await run('Encoders', 'animated WebP decodes', async () => { const blob = await PL.Encode.encodeWebp(frames, { delayMs: 40, quality: 0.9 }); const im = await decode(blob); return (im && im.naturalWidth === cp.W) || 'did not decode'; });
 
     render(performance.now() - t0);
