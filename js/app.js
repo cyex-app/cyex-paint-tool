@@ -108,7 +108,7 @@
     const typing = e.target.closest && e.target.closest('input, textarea, [contenteditable]');
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); }
-    else if (e.key === ' ' && state.mode === 'anim' && !typing && !e.target.closest('button, [role="radio"]')) { e.preventDefault(); togglePlay(); }
+    else if (e.key === ' ' && !e.defaultPrevented && state.mode === 'anim' && !typing && !e.target.closest('button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); togglePlay(); }
   });
 
   // =====================================================================================
@@ -464,8 +464,9 @@
     const select_ = () => { if (!(state.sel && state.sel.id === item.id)) { state.sel = { kind, id: item.id }; renderEditor(); } };
     const nameEl = h('span', { class: 'name', title: 'Double-click to rename' }, item.name || def.name);
     nameEl.addEventListener('dblclick', () => {
-      const inp = h('input', { class: 'field rename', value: item.name || def.name, 'aria-label': 'Rename' });
-      const done = (ok) => { if (ok && inp.value.trim()) { item.name = inp.value.trim(); changed(true); } renderEditor(); };
+      const inp = h('input', { class: 'field rename', value: item.name || def.name, maxlength: 64, 'aria-label': 'Rename' });
+      let finished = false;
+      const done = (ok) => { if (finished) return; finished = true; if (ok && inp.value.trim()) { item.name = inp.value.trim(); changed(true); } renderEditor(); focusItem(item.id); };
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); e.stopPropagation(); });
       inp.addEventListener('blur', () => done(true));
       nameEl.replaceWith(inp); inp.focus(); inp.select();
@@ -485,7 +486,7 @@
     grip(`Move ${item.name || def.name}`), thumb, nameEl,
     meta.length ? h('span', { class: 'meta' }, meta.join(' · ')) : null,
     h('span', { class: 'tools' },
-      iconBtn(item.visible ? 'eye' : 'eyeOff', item.visible ? 'Hide' : 'Show', () => { item.visible = !item.visible; renderEditor(); changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(!item.visible) } }),
+      iconBtn(item.visible ? 'eye' : 'eyeOff', 'Visible', () => { item.visible = !item.visible; renderEditor(); changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(item.visible), 'data-tip': item.visible ? 'Hide' : 'Show' } }),
       iconBtn('dup', 'Duplicate', () => { const c = clone(item); c.id = PL.uid(kind[0]); list.splice(idx + 1, 0, c); state.sel = { kind, id: c.id }; renderEditor(); changed(true); }, { cls: 'sm' }),
       iconBtn('trash', 'Delete', () => remove(), { cls: 'sm danger', attrs: { 'data-hint': 'Delete key' } })));
     function remove() { list.splice(list.indexOf(item), 1); if (isSel) state.sel = null; renderEditor(); changed(true); toast(`Removed ${item.name || def.name}. Ctrl+Z brings it back.`); }
@@ -532,7 +533,7 @@
     const { item, kind } = s;
     const def = kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
     let vis = visibleKeys(def, item.params);
-    const refreshIfNeeded = () => { const nv = visibleKeys(def, item.params); if (nv !== vis) { vis = nv; const old = $('#settingsPanel'); if (old) old.replaceWith(settingsPanel(s)); } };
+    const refreshIfNeeded = () => { const nv = visibleKeys(def, item.params); if (nv !== vis) { vis = nv; const old = $('#settingsPanel'); if (old) { const fd = focusDescriptor(); old.replaceWith(settingsPanel(s)); restoreFocus(fd); } } };
     const onInput = () => changed(false), onCommit = () => { changed(true); refreshIfNeeded(); };
     const nameIn = h('input', { class: 'field', value: item.name || def.name, 'aria-label': 'Name', 'data-sel-first': '', oninput: () => { item.name = nameIn.value; const n = $(`[data-id="${item.id}"] .name`); if (n) n.textContent = item.name; changed(false); }, onchange: () => commit() });
     const top = [h('p', { class: 'hint' }, def.desc), labeled('Name', nameIn)];
@@ -911,7 +912,7 @@
         if (d.layers.length && ['sparkles', 'stars', 'shine', 'glints', 'particles', 'rays'].includes(def.id)) l.blend = 'screen';
         d.layers.push(l); state.sel = { kind, id: l.id };
       } else { const e = E.newEffect(def.id); d.effects.push(e); state.sel = { kind, id: e.id }; }
-      dlg.close(); renderEditor(); changed(true);
+      dlg.close(); renderEditor(); changed(true); focusItem(state.sel.id);
       toast(`Added ${def.name}.${def.cat === 'Scene elements' ? ' Drag on the paint image to place it.' : ''}`);
     };
     const dlg = dialog(kind === 'layer' ? 'Add a layer or element' : 'Add an effect', [h('div', { class: 'search' }, icon('search'), search), h('div', { class: 'libwrap' }, nav, list)], { wide: true });
@@ -980,10 +981,39 @@
   // =====================================================================================
   // Render
   // =====================================================================================
+  // Re-rendering replaces the editor DOM, so remember what had focus and put focus back on the
+  // matching control (same row and label), or the row, or its neighbour when the row is gone.
+  const labelKey = (el) => (el.getAttribute('aria-label') || el.textContent || '').split(':')[0].trim();
+  function focusDescriptor() {
+    const a = document.activeElement, root = $('#editor');
+    if (!a || !root.contains(a)) return null;
+    const row = a.closest('[data-id]');
+    const rows = row ? [...row.parentElement.querySelectorAll(':scope > [data-id]')] : [];
+    return { id: row?.dataset.id, index: rows.indexOf(row), listLabel: row?.parentElement.getAttribute('aria-label'), isRow: a === row, inSettings: !!a.closest('#settingsPanel'), tag: a.tagName, label: labelKey(a) };
+  }
+  function restoreFocus(fd) {
+    if (!fd) return;
+    const root = $('#editor');
+    const match = (scope) => [...scope.querySelectorAll('button, input, [tabindex="0"]')].find((el) => el.tagName === fd.tag && labelKey(el) === fd.label);
+    let el = null;
+    if (fd.id) {
+      const row = root.querySelector(`[data-id="${fd.id}"]`);
+      if (row) el = fd.isRow ? row : match(row) || row;
+      else {
+        const list = [...root.querySelectorAll('[aria-label]')].find((x) => x.getAttribute('aria-label') === fd.listLabel);
+        const rows = list ? [...list.querySelectorAll(':scope > [data-id]')] : [];
+        el = rows[Math.min(fd.index, rows.length - 1)] || list?.closest('.panel')?.querySelector('.body .btn');
+      }
+    } else el = match(fd.inSettings ? $('#settingsPanel') || root : root);
+    if (el) el.focus({ preventScroll: true });
+  }
+  function focusItem(id) { setTimeout(() => $(`#editor [data-id="${id}"]`)?.focus({ preventScroll: true })); }
+
   function renderEditor() {
     const root = $('#editor');
     const y = scrollY;
     const sy = $('.settings-col')?.scrollTop || 0;
+    const fd = focusDescriptor();
     root.textContent = '';
     root.className = 'editor';
     document.querySelector('.layout').classList.toggle('anim', state.mode === 'anim');
@@ -991,6 +1021,7 @@
     if (state.mode === 'static') renderStaticEditor(root); else renderAnimEditor(root);
     scrollTo(0, y);
     const sc = $('.settings-col'); if (sc) sc.scrollTop = sy;
+    restoreFocus(fd);
   }
   function renderStage() {
     const root = $('#stage');
