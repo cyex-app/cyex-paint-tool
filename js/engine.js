@@ -8,14 +8,80 @@
 
   function defaults(def) { const o = {}; for (const p of def.params) o[p.k] = PL.clone(p.d); return o; }
   // Accept older or hand-written values: stops arrays where a palette is expected and the reverse.
+  // Also clamps every value to its definition, so imported or hand-edited projects can't
+  // ask for 1e9 copies, NaN sizes or colours that aren't colours.
+  const HEX = /^#[0-9a-f]{6}$/i;
+  const okHex = (v, d) => (typeof v === 'string' && HEX.test(v) ? v : d);
   function fixParams(def, params) {
-    const p = Object.assign(defaults(def), params || {});
+    const p = Object.assign(defaults(def), params && typeof params === 'object' ? params : {});
     for (const d of def.params) {
-      const v = p[d.k];
-      if (d.t === 'palette' && Array.isArray(v)) p[d.k] = PL.stopsToPalette(v, d.d.loop);
-      if (d.t === 'stops' && v && v.colors) p[d.k] = PL.paletteToStops(v);
+      let v = p[d.k];
+      if (d.t === 'palette' && Array.isArray(v)) v = PL.stopsToPalette(v, d.d.loop);
+      if (d.t === 'stops' && v && v.colors) v = PL.paletteToStops(v);
+      switch (d.t) {
+        case 'range': {
+          let n = Number(v);
+          if (!Number.isFinite(n)) n = d.d;
+          n = clamp(n, d.min, d.max);
+          if (d.step === 1) n = Math.round(n);
+          v = n; break;
+        }
+        case 'color': v = okHex(v, d.d); break;
+        case 'select': v = d.o.some(([k]) => k === v) ? v : d.d; break;
+        case 'bool': v = !!v; break;
+        case 'text': v = String(v ?? '').slice(0, 60); break;
+        case 'image': v = typeof v === 'string' && v.startsWith('data:image/') ? v : ''; break;
+        case 'stops': {
+          const arr = (Array.isArray(v) ? v : []).filter((s) => s && typeof s === 'object').slice(0, 64)
+            .map((s) => ({ at: clamp(Number(s.at) || 0), color: okHex(s.color, '#000000'), a: clamp(Number(s.a ?? 1)) }));
+          v = arr.length ? arr : PL.clone(d.d); break;
+        }
+        case 'palette': {
+          const cols = (v && Array.isArray(v.colors) ? v.colors : []).filter((c) => c && typeof c === 'object').slice(0, 24)
+            .map((c) => ({ c: okHex(c.c, '#ffffff'), a: clamp(Number(c.a ?? 1)), w: clamp(Number(c.w) || 0, 0, 4) }));
+          v = cols.length ? { colors: cols, blend: clamp(Number(v.blend ?? 1)), loop: !!v.loop } : PL.clone(d.d); break;
+        }
+      }
+      p[d.k] = v;
     }
     return p;
+  }
+  const num = (v, d, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? clamp(n, lo, hi) : d; };
+  const FPS_OK = [10, 20, 25, 33, 50];
+  // Clamp a whole document to what the editor can make. Returns { doc, dropped }.
+  function sanitizeDoc(raw) {
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const d = blankDoc();
+    d.name = String(src.name ?? d.name).slice(0, 64);
+    d.width = Math.round(num(src.width, 256, 8, 1024)); d.height = Math.round(num(src.height, 64, 8, 512));
+    d.fps = FPS_OK.includes(Number(src.fps)) ? Number(src.fps) : 25;
+    d.duration = Math.round(num(src.duration, 2, 0.4, 8) * 10) / 10;
+    let dropped = 0;
+    const L = Array.isArray(src.layers) ? src.layers : [], F = Array.isArray(src.effects) ? src.effects : [];
+    d.layers = L.filter((l) => l && PL.LAYERS[l.type] || (dropped++, false)).slice(0, 60).map((l) => {
+      const n = newLayer(l.type, l);
+      n.name = String(n.name || '').slice(0, 64); n.visible = n.visible !== false; n.opacity = num(n.opacity, 1, 0, 1);
+      if (!PL.BLENDS.some(([k]) => k === n.blend)) n.blend = 'normal';
+      for (const k of ['scale', 'rotate', 'ox', 'oy', 'sx', 'sy', 'spin']) n.xf[k] = num(n.xf[k], DEFAULT_XF[k], k === 'scale' ? 0.1 : k === 'rotate' ? -180 : -8, k === 'scale' ? 6 : k === 'rotate' ? 180 : 8);
+      for (const k of ['sx', 'sy', 'spin']) n.xf[k] = Math.round(n.xf[k]);
+      n.tweak = sanitizeTweak(n.tweak);
+      return n;
+    });
+    d.effects = F.filter((e) => e && PL.EFFECTS[e.type] || (dropped++, false)).slice(0, 30).map((e) => {
+      const n = newEffect(e.type, e); n.name = String(n.name || '').slice(0, 64); n.visible = n.visible !== false; return n;
+    });
+    d.shadows = sanitizeShadows(src.shadows);
+    d.tweak = sanitizeTweak(src.tweak);
+    return { doc: d, dropped };
+  }
+  function sanitizeTweak(tw) {
+    const t = Object.assign({}, DEFAULT_TWEAK, tw && typeof tw === 'object' ? tw : {});
+    return { hue: num(t.hue, 0, -180, 180), sat: num(t.sat, 1, 0, 2), bright: num(t.bright, 0, -0.5, 0.5), contrast: num(t.contrast, 1, 0.2, 2), tint: okHex(t.tint, '#ffffff'), tintAmt: num(t.tintAmt, 0, 0, 1) };
+  }
+  function sanitizeShadows(list) {
+    return (Array.isArray(list) ? list : []).filter((s) => s && typeof s === 'object').slice(0, 8).map((s) => ({
+      x_offset: num(s.x_offset, 0, -10, 10), y_offset: num(s.y_offset, 0, -10, 10), radius: num(s.radius, 0, 0, 20), color: Number.isFinite(Number(s.color)) ? Number(s.color) | 0 : 255,
+    }));
   }
 
   function newLayer(type, over = {}) {
@@ -156,5 +222,5 @@
     return toImageData(renderBuf(cp, t, W || cp.W, H || cp.H, index), W || cp.W, H || cp.H);
   }
 
-  PL.Engine = { newLayer, newEffect, blankDoc, frameCount, compile, renderBuf, renderFrame, toImageData, defaults, fixParams, DEFAULT_XF, DEFAULT_TWEAK };
+  PL.Engine = { newLayer, newEffect, blankDoc, frameCount, compile, renderBuf, renderFrame, toImageData, defaults, fixParams, sanitizeDoc, sanitizeShadows, DEFAULT_XF, DEFAULT_TWEAK };
 })(window.PL);

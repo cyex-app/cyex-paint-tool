@@ -20,22 +20,47 @@
     nameSize: 48,
     texSize: [256, 64],
   });
-  let state = defaultState();
-  try {
-    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (saved && saved.static && saved.anim) state = Object.assign(defaultState(), saved);
-  } catch (e) {}
-  // Layers saved by an older build may miss params; fill them from the library defaults.
-  function healDoc(doc) {
-    const d = Object.assign(E.blankDoc(), doc);
-    d.layers = (d.layers || []).filter((l) => PL.LAYERS[l.type]).map((l) => E.newLayer(l.type, l));
-    d.effects = (d.effects || []).filter((e) => PL.EFFECTS[e.type]).map((e) => E.newEffect(e.type, e));
-    d.shadows = d.shadows || [];
-    d.tweak = Object.assign({}, E.DEFAULT_TWEAK, d.tweak || {});
+  // Anything loaded (saved state, imports, dropped files) goes through sanitizeDoc, which clamps
+  // every value to what the editor can make and drops unknown layer types (reported to the user).
+  let pendingNotice = null;
+  function healDoc(doc, quiet) {
+    const { doc: d, dropped } = E.sanitizeDoc(doc);
+    if (dropped && !quiet) toastLater(`Skipped ${dropped} layer${dropped > 1 ? 's' : ''} this version doesn't know.`);
     return d;
   }
-  state.anim = healDoc(state.anim);
+  function toastLater(msg, kind = 'info') { if (typeof toast === 'function' && document.getElementById('toasts')) toast(msg, kind); else pendingNotice = [msg, kind]; }
+  let state = defaultState();
+  try {
+    let raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (_) { raw = null; } // storage blocked: nothing saved, not broken
+    const saved = JSON.parse(raw || 'null');
+    if (saved && saved.static && saved.anim) {
+      const next = Object.assign(defaultState(), saved);
+      next.anim = healDoc(next.anim, true);
+      next.static = Paint.normalize(next.static);
+      E.compile(next.anim); // throws here, not on every frame, if something is still wrong
+      state = next;
+    }
+  } catch (e) {
+    // a broken saved state must not brick the app: keep a copy and start fresh
+    try { localStorage.setItem(KEY + '.broken', localStorage.getItem(KEY) || ''); } catch (_) {}
+    state = defaultState();
+    pendingNotice = ['Your last saved paint couldn’t be loaded, so a fresh one is open. A copy was kept in this browser.', 'error'];
+  }
+  state.anim = healDoc(state.anim, true);
   state.static = Paint.normalize(state.static);
+
+  // One place that opens any JSON: a 7TV paint, or a cyex paints project.
+  function loadJson(obj) {
+    if (obj && obj.cyexPaintProject) {
+      state.anim = healDoc(obj.doc); state.mode = 'anim'; state.sel = null;
+      cacheDocImages(state.anim);
+      return 'Project opened.';
+    }
+    const res = Paint.normalize(obj, true);
+    state.static = res.paint; state.mode = 'static';
+    return res.warnings.length ? 'Paint imported. ' + res.warnings.join(' ') : 'Paint imported.';
+  }
 
   let saveTimer = 0;
   function save() {
@@ -66,7 +91,7 @@
     renderAll(); save(); updateUndo();
   }
   const undo = () => { if (!hist.past.length) return; commit(); if (!hist.past.length) return; hist.future.push(hist.last); restore(hist.past.pop()); };
-  const redo = () => { if (!hist.future.length) return; hist.past.push(hist.last); restore(hist.future.pop()); };
+  const redo = () => { commit(); if (!hist.future.length) return; hist.past.push(hist.last); restore(hist.future.pop()); };
   function updateUndo() { $('#undoBtn').disabled = !hist.past.length; $('#redoBtn').disabled = !hist.future.length; }
 
   // Every edit calls changed(); commit=true for discrete actions, sliders commit on release.
@@ -320,7 +345,9 @@
     const ctx = cv.getContext('2d');
     if (p.function === 'URL') {
       if (!p.image_url) throw new Error('Add an image URL first.');
-      const im = await loadImage(p.image_url);
+      const safe = Paint.safeUrl(p.image_url);
+      if (!safe) throw new Error('Add an http or https image link first.');
+      const im = await loadImage(safe);
       ctx.drawImage(im, 0, 0, w, hh);
       try { ctx.getImageData(0, 0, 1, 1); } catch (e) { throw new Error('That host blocks reading the image, so it can only be previewed, not exported.'); }
     } else ctx.putImageData(Paint.rasterize(p, w, hh), 0, 0);
@@ -344,10 +371,9 @@
       footer: [btn('Cancel', () => d.close(), 'secondary'), btn('Import', () => {
         try {
           const obj = JSON.parse(ta.value);
-          if (obj && obj.cyexPaintProject) { state.anim = healDoc(obj.doc); state.mode = 'anim'; state.sel = null; }
-          else { state.static = Paint.normalize(obj); state.mode = 'static'; }
-          d.close(); renderAll(); commit(); toast('Paint imported.', 'success');
-        } catch (e) { toast('That is not valid paint JSON: ' + e.message, 'error'); }
+          const msg = loadJson(obj);
+          d.close(); renderAll(); commit(); toast(msg, "success");
+        } catch (e) { toast("Couldn’t read that JSON. Check it’s a 7TV paint or a cyex paints project.", "error"); console.warn(e); }
       }, 'primary')],
     });
   }
@@ -370,7 +396,7 @@
   // =====================================================================================
   // Animated editor
   // =====================================================================================
-  const rt = { cp: null, cache: [], dirty: true, playing: true, frame: 0, start: performance.now(), shown: -1, redraw: true, texCv: null, ui: null };
+  const rt = { cp: null, cache: [], dirty: true, playing: !matchMedia('(prefers-reduced-motion: reduce)').matches, frame: 0, start: performance.now(), shown: -1, redraw: true, texCv: null, ui: null };
   const FPS = [[10, '10'], [20, '20'], [25, '25'], [33, '33'], [50, '50']];
 
   const findSel = () => {
@@ -693,10 +719,9 @@
     if (json) {
       try {
         const obj = JSON.parse(await json.text());
-        if (obj.cyexPaintProject) { state.anim = healDoc(obj.doc); state.mode = 'anim'; state.sel = null; cacheDocImages(state.anim); }
-        else { state.static = Paint.normalize(obj); state.mode = 'static'; }
-        renderAll(); commit(); toast('Opened ' + json.name + '.', 'success');
-      } catch (err) { toast('Could not open ' + json.name + ': ' + err.message, 'error'); }
+        const msg = loadJson(obj);
+        renderAll(); commit(); toast(msg, "success");
+      } catch (err) { toast("Couldn’t open " + json.name + ". Check it’s a paint or project file.", "error"); console.warn(err); }
       return;
     }
     const imgs = files.filter((f) => f.type.startsWith('image/'));
@@ -715,12 +740,21 @@
   function togglePlay() { rt.playing = !rt.playing; if (rt.playing) rt.start = performance.now() - (rt.frame / state.anim.fps) * 1000; setPlayIcon(); }
 
   function getFrame(i) {
-    if (!rt.cache[i]) rt.cache[i] = E.renderFrame(rt.cp, i);
-    return rt.cache[i];
+    // cache frames only while the whole loop fits in ~160 MB; above that, render each frame on demand
+    if (rt.cache[i]) return rt.cache[i];
+    const img = E.renderFrame(rt.cp, i);
+    if (rt.cp.W * rt.cp.H * 4 * rt.cp.frames <= 160e6) rt.cache[i] = img;
+    return img;
   }
+  // The preview loop never throws: a failing layer shows one error and waits for the next edit.
   function tick(now) {
     requestAnimationFrame(tick);
-    if (state.mode !== 'anim' || !rt.texCv) return;
+    if (state.mode !== 'anim' || !rt.texCv || (rt.broken && !rt.dirty)) return;
+    if (document.querySelector('.backdrop')) return; // a dialog covers the preview
+    try { step(now); rt.broken = false; }
+    catch (e) { console.error(e); rt.broken = true; rt.dirty = false; toast('Couldn’t draw this paint. Undo the last change or remove the layer that broke it.', 'error'); }
+  }
+  function step(now) {
     const d = state.anim;
     if (rt.dirty) {
       rt.cp = E.compile(d); rt.cache = []; rt.dirty = false; rt.redraw = true;
@@ -832,7 +866,9 @@
     const nsz = slider('Name size', state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { state.nameSize = v; save(); } });
 
     // 7TV JSON for an image paint
-    outputGetter = () => (codeTab === 'project' ? JSON.stringify({ cyexPaintProject: 1, doc: state.anim }, null, 2).slice(0, 20000) : JSON.stringify({ name: state.anim.name, function: 'URL', repeat: false, angle: 0, shape: 'circle', image_url: state.url, stops: [], shadows: state.anim.shadows }, null, 2));
+    // the project preview leaves out embedded pictures (they can be megabytes); Save project keeps them
+    const projectPreview = () => JSON.stringify({ cyexPaintProject: 1, doc: state.anim }, (k, v) => (k === 'src' && typeof v === 'string' && v.length > 80 ? '<picture data, kept in Save project>' : v), 2);
+    outputGetter = () => (codeTab === 'project' ? projectPreview() : JSON.stringify({ name: state.anim.name, function: 'URL', repeat: false, angle: 0, shape: 'circle', image_url: state.url, stops: [], shadows: state.anim.shadows }, null, 2));
     if (codeTab === 'css') codeTab = 'json';
     const code = codeBox(outputGetter, [['json', '7TV JSON'], ['project', 'Project']]);
     const url = h('input', { class: 'field mono', value: state.url, placeholder: 'https://…/my-paint.gif', spellcheck: false, 'aria-label': 'Hosted image URL', oninput: () => { state.url = url.value.trim(); updateOutput(); save(); } });
@@ -841,9 +877,8 @@
       const f = file.files[0]; if (!f) return;
       try {
         const obj = JSON.parse(await f.text());
-        if (obj.cyexPaintProject) { state.anim = healDoc(obj.doc); state.sel = null; cacheDocImages(state.anim); renderAll(); commit(); toast('Project opened.', 'success'); }
-        else { state.static = Paint.normalize(obj); state.mode = 'static'; renderAll(); commit(); toast('That was a static paint; opened it in the Static tab.', 'success'); }
-      } catch (e) { toast('Could not open that file: ' + e.message, 'error'); }
+        const msg = loadJson(obj); renderAll(); commit(); toast(msg, "success");
+      } catch (e) { toast("Couldn’t open that file. Check it’s a paint or project file.", "error"); console.warn(e); }
     } });
     const openP = h('label', { class: 'btn secondary small' }, icon('folder'), 'Open project', file);
 
@@ -858,7 +893,8 @@
   }
   function showResult(host, r) {
     host.textContent = '';
-    const url = URL.createObjectURL(r.blob);
+    if (!r.url) r.url = URL.createObjectURL(r.blob); // one URL per export, revoked when replaced
+    const url = r.url;
     const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: state.preview.color, backgroundImage: `url(${url})`, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: state.anim.shadows }) } }, state.preview.text);
     host.append(h('div', { class: 'result' },
       h('img', { src: url, alt: r.kind + ' export' }),
@@ -1045,4 +1081,5 @@
   cacheDocImages(state.anim);
   renderAll();
   updateUndo();
+  if (pendingNotice) toast(...pendingNotice);
 })(window.PL);

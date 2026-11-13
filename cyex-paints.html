@@ -855,39 +855,56 @@ window.PL = window.PL || {};
 
   // Accepts the editor's own export, a 7TV API object ({ data: {...} } or v2 fields) or a
   // loose hand-written variant (hex strings for colours, "at" in percent).
-  function normalize(input) {
+  // withWarnings: return { paint, warnings } so the import can say what it corrected.
+  function normalize(input, withWarnings) {
+    const warnings = [];
     let p = input;
     if (typeof p === 'string') p = JSON.parse(p);
     if (p && p.data && typeof p.data === 'object' && !p.stops) p = Object.assign({ name: p.name }, p.data);
     if (!p || typeof p !== 'object') throw new Error('Not a paint object');
     const out = blankPaint();
-    out.name = String(p.name ?? out.name);
+    out.name = String(p.name ?? out.name).slice(0, 64);
     const fn = String(p.function || 'LINEAR_GRADIENT').toUpperCase().replace('-', '_');
     out.function = FUNCS.includes(fn) ? fn : fn.includes('RADIAL') ? 'RADIAL_GRADIENT' : fn === 'IMAGE' ? 'URL' : 'LINEAR_GRADIENT';
     out.repeat = !!p.repeat;
-    out.angle = Number.isFinite(+p.angle) ? +p.angle : 90;
+    const ang = Number.isFinite(+p.angle) ? +p.angle : 90;
+    out.angle = ((ang % 360) + 360) % 360;
+    if (out.angle !== ang) warnings.push(`Angle ${ang} became ${out.angle}.`);
     out.shape = p.shape === 'ellipse' ? 'ellipse' : 'circle';
-    out.image_url = String(p.image_url || '');
+    out.image_url = safeUrl(p.image_url);
+    if (p.image_url && !out.image_url) warnings.push('The image URL was dropped; only http and https links work.');
+    let badColours = 0;
     const toInt = (c) => {
-      if (typeof c === 'number') return c | 0;
+      if (typeof c === 'number' && Number.isFinite(c)) return c | 0;
       if (typeof c === 'string') {
         const m = c.trim();
         if (/^-?\d+$/.test(m)) return parseInt(m, 10) | 0;
         const h = m.replace('#', '');
-        const [r, g, b] = PL.hexToRgb(h.slice(0, 6));
-        const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) : 255;
-        return PL.packRGBA(r, g, b, a);
+        if (/^([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(h)) {
+          const full = h.length <= 4 ? h.split('').map((x) => x + x).join('') : h;
+          const [r, g, b] = PL.hexToRgb(full.slice(0, 6));
+          const a = full.length === 8 ? parseInt(full.slice(6, 8), 16) : 255;
+          return PL.packRGBA(r, g, b, a);
+        }
       }
+      badColours++;
       return 255;
     };
-    const stops = Array.isArray(p.stops) ? p.stops : [];
+    const stops = (Array.isArray(p.stops) ? p.stops : []).filter((s) => s && typeof s === 'object').slice(0, 64);
     const anyOver1 = stops.some((s) => +s.at > 1);
     out.stops = stops.map((s) => ({ at: round4(clamp((+s.at || 0) / (anyOver1 ? 100 : 1))), color: toInt(s.color) }));
-    out.shadows = (Array.isArray(p.shadows) ? p.shadows : []).map((s) => ({
-      x_offset: +s.x_offset || 0, y_offset: +s.y_offset || 0, radius: Math.max(0, +s.radius || 0), color: toInt(s.color),
+    out.shadows = (Array.isArray(p.shadows) ? p.shadows : []).filter((s) => s && typeof s === 'object').slice(0, 8).map((s) => ({
+      x_offset: clamp(+s.x_offset || 0, -10, 10), y_offset: clamp(+s.y_offset || 0, -10, 10), radius: clamp(+s.radius || 0, 0, 20), color: toInt(s.color),
     }));
-    return out;
+    if (badColours) warnings.push(badColours > 1 ? `${badColours} colours weren't valid and became black.` : 'One colour wasn’t valid and became black.');
+    return withWarnings ? { paint: out, warnings } : out;
   }
+  // Only http(s) links go into CSS; anything else (javascript:, data:, broken strings) is dropped.
+  function safeUrl(u) {
+    if (!u) return '';
+    try { const x = new URL(String(u).trim()); return x.protocol === 'https:' || x.protocol === 'http:' ? x.href : ''; } catch (e) { return ''; }
+  }
+  const cssUrl = (u) => `url("${String(u).replace(/["\\\n\r]/g, (c) => encodeURIComponent(c))}")`;
   const round4 = (x) => Math.round(x * 10000) / 10000;
 
   // Mirrors createGradientFromPaint in SevenTV/Extension (src/composable/useCosmetics.ts).
@@ -895,7 +912,7 @@ window.PL = window.PL || {};
     const args = [];
     if (p.function === 'LINEAR_GRADIENT') args.push(`${p.angle ?? 0}deg`);
     else if (p.function === 'RADIAL_GRADIENT') args.push(p.shape ?? 'circle');
-    else args.push(p.image_url ?? '');
+    else { const u = safeUrl(p.image_url); return u ? cssUrl(u) : 'none'; }
     let prefix = '';
     if (p.function !== 'URL') {
       prefix = p.repeat ? 'repeating-' : '';
@@ -974,7 +991,7 @@ window.PL = window.PL || {};
     return img;
   }
 
-  PL.Paint = { blankPaint, normalize, gradientCss, filterCss, styleFor, cssText, toJson, editorStops, rasterize, shadowCss };
+  PL.Paint = { safeUrl, blankPaint, normalize, gradientCss, filterCss, styleFor, cssText, toJson, editorStops, rasterize, shadowCss };
 })(window.PL);
 
 </script>
@@ -2133,6 +2150,7 @@ window.PL = window.PL || {};
       p._blobs = cols.map((c) => ({ rgb: rgb01(c.c), a: c.a ?? 1, w: c.w, x: r(), y: r(), px: r(), py: r(), k: 1 + ((r() * 2) | 0) }));
     },
     sample(u, v, t, p, o, c) {
+      if (!p._blobs.length) { o[0] = o[1] = o[2] = o[3] = 0; return o; } // all strengths 0: nothing to draw
       let sr = 0, sg = 0, sb = 0, sa = 0, sw = 0;
       for (const b of p._blobs) {
         const bx = b.x + p.move * Math.sin(TAU * (t * p.speed * b.k + b.px)), by = b.y + p.move * Math.cos(TAU * (t * p.speed * b.k + b.py));
@@ -2906,14 +2924,80 @@ window.PL = window.PL || {};
 
   function defaults(def) { const o = {}; for (const p of def.params) o[p.k] = PL.clone(p.d); return o; }
   // Accept older or hand-written values: stops arrays where a palette is expected and the reverse.
+  // Also clamps every value to its definition, so imported or hand-edited projects can't
+  // ask for 1e9 copies, NaN sizes or colours that aren't colours.
+  const HEX = /^#[0-9a-f]{6}$/i;
+  const okHex = (v, d) => (typeof v === 'string' && HEX.test(v) ? v : d);
   function fixParams(def, params) {
-    const p = Object.assign(defaults(def), params || {});
+    const p = Object.assign(defaults(def), params && typeof params === 'object' ? params : {});
     for (const d of def.params) {
-      const v = p[d.k];
-      if (d.t === 'palette' && Array.isArray(v)) p[d.k] = PL.stopsToPalette(v, d.d.loop);
-      if (d.t === 'stops' && v && v.colors) p[d.k] = PL.paletteToStops(v);
+      let v = p[d.k];
+      if (d.t === 'palette' && Array.isArray(v)) v = PL.stopsToPalette(v, d.d.loop);
+      if (d.t === 'stops' && v && v.colors) v = PL.paletteToStops(v);
+      switch (d.t) {
+        case 'range': {
+          let n = Number(v);
+          if (!Number.isFinite(n)) n = d.d;
+          n = clamp(n, d.min, d.max);
+          if (d.step === 1) n = Math.round(n);
+          v = n; break;
+        }
+        case 'color': v = okHex(v, d.d); break;
+        case 'select': v = d.o.some(([k]) => k === v) ? v : d.d; break;
+        case 'bool': v = !!v; break;
+        case 'text': v = String(v ?? '').slice(0, 60); break;
+        case 'image': v = typeof v === 'string' && v.startsWith('data:image/') ? v : ''; break;
+        case 'stops': {
+          const arr = (Array.isArray(v) ? v : []).filter((s) => s && typeof s === 'object').slice(0, 64)
+            .map((s) => ({ at: clamp(Number(s.at) || 0), color: okHex(s.color, '#000000'), a: clamp(Number(s.a ?? 1)) }));
+          v = arr.length ? arr : PL.clone(d.d); break;
+        }
+        case 'palette': {
+          const cols = (v && Array.isArray(v.colors) ? v.colors : []).filter((c) => c && typeof c === 'object').slice(0, 24)
+            .map((c) => ({ c: okHex(c.c, '#ffffff'), a: clamp(Number(c.a ?? 1)), w: clamp(Number(c.w) || 0, 0, 4) }));
+          v = cols.length ? { colors: cols, blend: clamp(Number(v.blend ?? 1)), loop: !!v.loop } : PL.clone(d.d); break;
+        }
+      }
+      p[d.k] = v;
     }
     return p;
+  }
+  const num = (v, d, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? clamp(n, lo, hi) : d; };
+  const FPS_OK = [10, 20, 25, 33, 50];
+  // Clamp a whole document to what the editor can make. Returns { doc, dropped }.
+  function sanitizeDoc(raw) {
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const d = blankDoc();
+    d.name = String(src.name ?? d.name).slice(0, 64);
+    d.width = Math.round(num(src.width, 256, 8, 1024)); d.height = Math.round(num(src.height, 64, 8, 512));
+    d.fps = FPS_OK.includes(Number(src.fps)) ? Number(src.fps) : 25;
+    d.duration = Math.round(num(src.duration, 2, 0.4, 8) * 10) / 10;
+    let dropped = 0;
+    const L = Array.isArray(src.layers) ? src.layers : [], F = Array.isArray(src.effects) ? src.effects : [];
+    d.layers = L.filter((l) => l && PL.LAYERS[l.type] || (dropped++, false)).slice(0, 60).map((l) => {
+      const n = newLayer(l.type, l);
+      n.name = String(n.name || '').slice(0, 64); n.visible = n.visible !== false; n.opacity = num(n.opacity, 1, 0, 1);
+      if (!PL.BLENDS.some(([k]) => k === n.blend)) n.blend = 'normal';
+      for (const k of ['scale', 'rotate', 'ox', 'oy', 'sx', 'sy', 'spin']) n.xf[k] = num(n.xf[k], DEFAULT_XF[k], k === 'scale' ? 0.1 : k === 'rotate' ? -180 : -8, k === 'scale' ? 6 : k === 'rotate' ? 180 : 8);
+      for (const k of ['sx', 'sy', 'spin']) n.xf[k] = Math.round(n.xf[k]);
+      n.tweak = sanitizeTweak(n.tweak);
+      return n;
+    });
+    d.effects = F.filter((e) => e && PL.EFFECTS[e.type] || (dropped++, false)).slice(0, 30).map((e) => {
+      const n = newEffect(e.type, e); n.name = String(n.name || '').slice(0, 64); n.visible = n.visible !== false; return n;
+    });
+    d.shadows = sanitizeShadows(src.shadows);
+    d.tweak = sanitizeTweak(src.tweak);
+    return { doc: d, dropped };
+  }
+  function sanitizeTweak(tw) {
+    const t = Object.assign({}, DEFAULT_TWEAK, tw && typeof tw === 'object' ? tw : {});
+    return { hue: num(t.hue, 0, -180, 180), sat: num(t.sat, 1, 0, 2), bright: num(t.bright, 0, -0.5, 0.5), contrast: num(t.contrast, 1, 0.2, 2), tint: okHex(t.tint, '#ffffff'), tintAmt: num(t.tintAmt, 0, 0, 1) };
+  }
+  function sanitizeShadows(list) {
+    return (Array.isArray(list) ? list : []).filter((s) => s && typeof s === 'object').slice(0, 8).map((s) => ({
+      x_offset: num(s.x_offset, 0, -10, 10), y_offset: num(s.y_offset, 0, -10, 10), radius: num(s.radius, 0, 0, 20), color: Number.isFinite(Number(s.color)) ? Number(s.color) | 0 : 255,
+    }));
   }
 
   function newLayer(type, over = {}) {
@@ -3054,7 +3138,7 @@ window.PL = window.PL || {};
     return toImageData(renderBuf(cp, t, W || cp.W, H || cp.H, index), W || cp.W, H || cp.H);
   }
 
-  PL.Engine = { newLayer, newEffect, blankDoc, frameCount, compile, renderBuf, renderFrame, toImageData, defaults, fixParams, DEFAULT_XF, DEFAULT_TWEAK };
+  PL.Engine = { newLayer, newEffect, blankDoc, frameCount, compile, renderBuf, renderFrame, toImageData, defaults, fixParams, sanitizeDoc, sanitizeShadows, DEFAULT_XF, DEFAULT_TWEAK };
 })(window.PL);
 
 </script>
@@ -3795,22 +3879,47 @@ window.PL = window.PL || {};
     nameSize: 48,
     texSize: [256, 64],
   });
-  let state = defaultState();
-  try {
-    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (saved && saved.static && saved.anim) state = Object.assign(defaultState(), saved);
-  } catch (e) {}
-  // Layers saved by an older build may miss params; fill them from the library defaults.
-  function healDoc(doc) {
-    const d = Object.assign(E.blankDoc(), doc);
-    d.layers = (d.layers || []).filter((l) => PL.LAYERS[l.type]).map((l) => E.newLayer(l.type, l));
-    d.effects = (d.effects || []).filter((e) => PL.EFFECTS[e.type]).map((e) => E.newEffect(e.type, e));
-    d.shadows = d.shadows || [];
-    d.tweak = Object.assign({}, E.DEFAULT_TWEAK, d.tweak || {});
+  // Anything loaded (saved state, imports, dropped files) goes through sanitizeDoc, which clamps
+  // every value to what the editor can make and drops unknown layer types (reported to the user).
+  let pendingNotice = null;
+  function healDoc(doc, quiet) {
+    const { doc: d, dropped } = E.sanitizeDoc(doc);
+    if (dropped && !quiet) toastLater(`Skipped ${dropped} layer${dropped > 1 ? 's' : ''} this version doesn't know.`);
     return d;
   }
-  state.anim = healDoc(state.anim);
+  function toastLater(msg, kind = 'info') { if (typeof toast === 'function' && document.getElementById('toasts')) toast(msg, kind); else pendingNotice = [msg, kind]; }
+  let state = defaultState();
+  try {
+    let raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (_) { raw = null; } // storage blocked: nothing saved, not broken
+    const saved = JSON.parse(raw || 'null');
+    if (saved && saved.static && saved.anim) {
+      const next = Object.assign(defaultState(), saved);
+      next.anim = healDoc(next.anim, true);
+      next.static = Paint.normalize(next.static);
+      E.compile(next.anim); // throws here, not on every frame, if something is still wrong
+      state = next;
+    }
+  } catch (e) {
+    // a broken saved state must not brick the app: keep a copy and start fresh
+    try { localStorage.setItem(KEY + '.broken', localStorage.getItem(KEY) || ''); } catch (_) {}
+    state = defaultState();
+    pendingNotice = ['Your last saved paint couldn’t be loaded, so a fresh one is open. A copy was kept in this browser.', 'error'];
+  }
+  state.anim = healDoc(state.anim, true);
   state.static = Paint.normalize(state.static);
+
+  // One place that opens any JSON: a 7TV paint, or a cyex paints project.
+  function loadJson(obj) {
+    if (obj && obj.cyexPaintProject) {
+      state.anim = healDoc(obj.doc); state.mode = 'anim'; state.sel = null;
+      cacheDocImages(state.anim);
+      return 'Project opened.';
+    }
+    const res = Paint.normalize(obj, true);
+    state.static = res.paint; state.mode = 'static';
+    return res.warnings.length ? 'Paint imported. ' + res.warnings.join(' ') : 'Paint imported.';
+  }
 
   let saveTimer = 0;
   function save() {
@@ -3841,7 +3950,7 @@ window.PL = window.PL || {};
     renderAll(); save(); updateUndo();
   }
   const undo = () => { if (!hist.past.length) return; commit(); if (!hist.past.length) return; hist.future.push(hist.last); restore(hist.past.pop()); };
-  const redo = () => { if (!hist.future.length) return; hist.past.push(hist.last); restore(hist.future.pop()); };
+  const redo = () => { commit(); if (!hist.future.length) return; hist.past.push(hist.last); restore(hist.future.pop()); };
   function updateUndo() { $('#undoBtn').disabled = !hist.past.length; $('#redoBtn').disabled = !hist.future.length; }
 
   // Every edit calls changed(); commit=true for discrete actions, sliders commit on release.
@@ -4095,7 +4204,9 @@ window.PL = window.PL || {};
     const ctx = cv.getContext('2d');
     if (p.function === 'URL') {
       if (!p.image_url) throw new Error('Add an image URL first.');
-      const im = await loadImage(p.image_url);
+      const safe = Paint.safeUrl(p.image_url);
+      if (!safe) throw new Error('Add an http or https image link first.');
+      const im = await loadImage(safe);
       ctx.drawImage(im, 0, 0, w, hh);
       try { ctx.getImageData(0, 0, 1, 1); } catch (e) { throw new Error('That host blocks reading the image, so it can only be previewed, not exported.'); }
     } else ctx.putImageData(Paint.rasterize(p, w, hh), 0, 0);
@@ -4119,10 +4230,9 @@ window.PL = window.PL || {};
       footer: [btn('Cancel', () => d.close(), 'secondary'), btn('Import', () => {
         try {
           const obj = JSON.parse(ta.value);
-          if (obj && obj.cyexPaintProject) { state.anim = healDoc(obj.doc); state.mode = 'anim'; state.sel = null; }
-          else { state.static = Paint.normalize(obj); state.mode = 'static'; }
-          d.close(); renderAll(); commit(); toast('Paint imported.', 'success');
-        } catch (e) { toast('That is not valid paint JSON: ' + e.message, 'error'); }
+          const msg = loadJson(obj);
+          d.close(); renderAll(); commit(); toast(msg, "success");
+        } catch (e) { toast("Couldn’t read that JSON. Check it’s a 7TV paint or a cyex paints project.", "error"); console.warn(e); }
       }, 'primary')],
     });
   }
@@ -4145,7 +4255,7 @@ window.PL = window.PL || {};
   // =====================================================================================
   // Animated editor
   // =====================================================================================
-  const rt = { cp: null, cache: [], dirty: true, playing: true, frame: 0, start: performance.now(), shown: -1, redraw: true, texCv: null, ui: null };
+  const rt = { cp: null, cache: [], dirty: true, playing: !matchMedia('(prefers-reduced-motion: reduce)').matches, frame: 0, start: performance.now(), shown: -1, redraw: true, texCv: null, ui: null };
   const FPS = [[10, '10'], [20, '20'], [25, '25'], [33, '33'], [50, '50']];
 
   const findSel = () => {
@@ -4468,10 +4578,9 @@ window.PL = window.PL || {};
     if (json) {
       try {
         const obj = JSON.parse(await json.text());
-        if (obj.cyexPaintProject) { state.anim = healDoc(obj.doc); state.mode = 'anim'; state.sel = null; cacheDocImages(state.anim); }
-        else { state.static = Paint.normalize(obj); state.mode = 'static'; }
-        renderAll(); commit(); toast('Opened ' + json.name + '.', 'success');
-      } catch (err) { toast('Could not open ' + json.name + ': ' + err.message, 'error'); }
+        const msg = loadJson(obj);
+        renderAll(); commit(); toast(msg, "success");
+      } catch (err) { toast("Couldn’t open " + json.name + ". Check it’s a paint or project file.", "error"); console.warn(err); }
       return;
     }
     const imgs = files.filter((f) => f.type.startsWith('image/'));
@@ -4490,12 +4599,21 @@ window.PL = window.PL || {};
   function togglePlay() { rt.playing = !rt.playing; if (rt.playing) rt.start = performance.now() - (rt.frame / state.anim.fps) * 1000; setPlayIcon(); }
 
   function getFrame(i) {
-    if (!rt.cache[i]) rt.cache[i] = E.renderFrame(rt.cp, i);
-    return rt.cache[i];
+    // cache frames only while the whole loop fits in ~160 MB; above that, render each frame on demand
+    if (rt.cache[i]) return rt.cache[i];
+    const img = E.renderFrame(rt.cp, i);
+    if (rt.cp.W * rt.cp.H * 4 * rt.cp.frames <= 160e6) rt.cache[i] = img;
+    return img;
   }
+  // The preview loop never throws: a failing layer shows one error and waits for the next edit.
   function tick(now) {
     requestAnimationFrame(tick);
-    if (state.mode !== 'anim' || !rt.texCv) return;
+    if (state.mode !== 'anim' || !rt.texCv || (rt.broken && !rt.dirty)) return;
+    if (document.querySelector('.backdrop')) return; // a dialog covers the preview
+    try { step(now); rt.broken = false; }
+    catch (e) { console.error(e); rt.broken = true; rt.dirty = false; toast('Couldn’t draw this paint. Undo the last change or remove the layer that broke it.', 'error'); }
+  }
+  function step(now) {
     const d = state.anim;
     if (rt.dirty) {
       rt.cp = E.compile(d); rt.cache = []; rt.dirty = false; rt.redraw = true;
@@ -4607,7 +4725,9 @@ window.PL = window.PL || {};
     const nsz = slider('Name size', state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { state.nameSize = v; save(); } });
 
     // 7TV JSON for an image paint
-    outputGetter = () => (codeTab === 'project' ? JSON.stringify({ cyexPaintProject: 1, doc: state.anim }, null, 2).slice(0, 20000) : JSON.stringify({ name: state.anim.name, function: 'URL', repeat: false, angle: 0, shape: 'circle', image_url: state.url, stops: [], shadows: state.anim.shadows }, null, 2));
+    // the project preview leaves out embedded pictures (they can be megabytes); Save project keeps them
+    const projectPreview = () => JSON.stringify({ cyexPaintProject: 1, doc: state.anim }, (k, v) => (k === 'src' && typeof v === 'string' && v.length > 80 ? '<picture data, kept in Save project>' : v), 2);
+    outputGetter = () => (codeTab === 'project' ? projectPreview() : JSON.stringify({ name: state.anim.name, function: 'URL', repeat: false, angle: 0, shape: 'circle', image_url: state.url, stops: [], shadows: state.anim.shadows }, null, 2));
     if (codeTab === 'css') codeTab = 'json';
     const code = codeBox(outputGetter, [['json', '7TV JSON'], ['project', 'Project']]);
     const url = h('input', { class: 'field mono', value: state.url, placeholder: 'https://…/my-paint.gif', spellcheck: false, 'aria-label': 'Hosted image URL', oninput: () => { state.url = url.value.trim(); updateOutput(); save(); } });
@@ -4616,9 +4736,8 @@ window.PL = window.PL || {};
       const f = file.files[0]; if (!f) return;
       try {
         const obj = JSON.parse(await f.text());
-        if (obj.cyexPaintProject) { state.anim = healDoc(obj.doc); state.sel = null; cacheDocImages(state.anim); renderAll(); commit(); toast('Project opened.', 'success'); }
-        else { state.static = Paint.normalize(obj); state.mode = 'static'; renderAll(); commit(); toast('That was a static paint; opened it in the Static tab.', 'success'); }
-      } catch (e) { toast('Could not open that file: ' + e.message, 'error'); }
+        const msg = loadJson(obj); renderAll(); commit(); toast(msg, "success");
+      } catch (e) { toast("Couldn’t open that file. Check it’s a paint or project file.", "error"); console.warn(e); }
     } });
     const openP = h('label', { class: 'btn secondary small' }, icon('folder'), 'Open project', file);
 
@@ -4633,7 +4752,8 @@ window.PL = window.PL || {};
   }
   function showResult(host, r) {
     host.textContent = '';
-    const url = URL.createObjectURL(r.blob);
+    if (!r.url) r.url = URL.createObjectURL(r.blob); // one URL per export, revoked when replaced
+    const url = r.url;
     const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: state.preview.color, backgroundImage: `url(${url})`, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: state.anim.shadows }) } }, state.preview.text);
     host.append(h('div', { class: 'result' },
       h('img', { src: url, alt: r.kind + ' export' }),
@@ -4820,6 +4940,7 @@ window.PL = window.PL || {};
   cacheDocImages(state.anim);
   renderAll();
   updateUndo();
+  if (pendingNotice) toast(...pendingNotice);
 })(window.PL);
 
 </script>

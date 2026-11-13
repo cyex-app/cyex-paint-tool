@@ -36,6 +36,7 @@
       p._blobs = cols.map((c) => ({ rgb: rgb01(c.c), a: c.a ?? 1, w: c.w, x: r(), y: r(), px: r(), py: r(), k: 1 + ((r() * 2) | 0) }));
     },
     sample(u, v, t, p, o, c) {
+      if (!p._blobs.length) { o[0] = o[1] = o[2] = o[3] = 0; return o; } // all strengths 0: nothing to draw
       let sr = 0, sg = 0, sb = 0, sa = 0, sw = 0;
       for (const b of p._blobs) {
         const bx = b.x + p.move * Math.sin(TAU * (t * p.speed * b.k + b.px)), by = b.y + p.move * Math.cos(TAU * (t * p.speed * b.k + b.py));
