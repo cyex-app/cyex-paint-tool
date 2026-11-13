@@ -22,6 +22,7 @@
     rt.ui = { playB, scrub, fno };
     root.append(p.el, A.animOutput());
     rt.redraw = true; rt.dirty = true;
+    rt.touchSel = null; // new canvases: the next tick sets their touch-action
     enableCanvasDrag(rt.texCv, (cv, e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; });
     A.pv.names.forEach((cv) => enableCanvasDrag(cv, (c, e) => {
       // the name canvas has shadow padding around the text box the paint is stretched over
@@ -40,6 +41,13 @@
     if (byKey.cx && byKey.cy && /^Centre/.test(byKey.cx.l)) return { item: s.item, p: s.item.params, kx: 'cx', ky: 'cy' };
     return null;
   }
+  // While something draggable is selected, touch on the paint image and the big names places it
+  // instead of scrolling the page; otherwise they scroll as usual. Checked when the selection changes.
+  function syncTouch() {
+    const ta = dragTarget() ? 'none' : '';
+    if (rt.texCv) rt.texCv.style.touchAction = ta;
+    if (A.pv && A.pv.names) A.pv.names.forEach((cv) => { cv.style.touchAction = ta; });
+  }
   function enableCanvasDrag(cv, toUV) {
     cv.addEventListener('pointerenter', () => { cv.style.cursor = dragTarget() ? 'move' : ''; });
     cv.addEventListener('pointerdown', (e) => {
@@ -51,8 +59,13 @@
       // an animated position gets a key at the playhead instead of a new plain value
       const keyed = A.kf && (A.kf.animated(tg.item, 'params.' + kx) || A.kf.animated(tg.item, 'params.' + ky));
       if (keyed) pause();
-      const put = (k, val) => { if (keyed && A.kf.animated(tg.item, 'params.' + k)) A.kf.put(tg.item, 'params.' + k, val); else tg.p[k] = val; };
+      const isKeyed = (k) => keyed && A.kf.animated(tg.item, 'params.' + k);
+      const put = (k, val) => { if (isKeyed(k)) A.kf.put(tg.item, 'params.' + k, val); else tg.p[k] = val; };
+      // at the key limit nothing moves (x and y together), with one toast per drag
+      const why = keyed ? [kx, ky].filter(isKeyed).map((k) => A.kf.limit(tg.item, 'params.' + k)).find(Boolean) : '';
+      let warned = false;
       const set = (ev) => {
+        if (why) { if (!warned) { warned = true; toast(why); } return; }
         const [u, v] = toUV(cv, ev);
         put(kx, Math.round(PL.clamp(u, -0.25, 1.25) * 100) / 100); put(ky, Math.round(PL.clamp(v, -0.25, 1.25) * 100) / 100);
         A.changed(false);
@@ -60,6 +73,8 @@
       set(e);
       const up = () => {
         cv.removeEventListener('pointermove', set); cv.removeEventListener('pointerup', up); cv.removeEventListener('pointercancel', up);
+        if (A.kf) A.kf.endGesture();
+        if (why) return; // nothing changed
         const old = $('#settingsPanel'), s = A.findSel();
         if (old && s) { const fd = A.focusDescriptor(); old.replaceWith(A.settingsPanel(s)); A.restoreFocus(fd); }
         A.changed(true);
@@ -135,7 +150,10 @@
   // The preview loop never throws: a failing layer shows one error and waits for the next edit.
   function tick(now) {
     requestAnimationFrame(tick);
-    if (A.state.mode !== 'anim' || !rt.texCv || (rt.broken && !rt.dirty)) return;
+    if (A.state.mode !== 'anim' || !rt.texCv) return;
+    const sel = A.state.sel ? A.state.sel.kind + ':' + A.state.sel.id : '';
+    if (sel !== rt.touchSel) { rt.touchSel = sel; syncTouch(); }
+    if (rt.broken && !rt.dirty) return;
     if (document.querySelector('.backdrop')) return; // a dialog covers the preview
     try { step(now); rt.broken = false; }
     catch (e) { console.error(e); rt.broken = true; rt.dirty = false; toast('Couldn’t draw this paint. Undo the last change or remove the layer that broke it.', 'error'); }

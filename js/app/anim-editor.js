@@ -16,6 +16,10 @@
   const setP = (o, path, v) => { const ps = path.split('.'); let x = o; for (let i = 0; i < ps.length - 1; i++) { if (x == null) return; x = x[ps[i]]; } if (x != null) x[ps[ps.length - 1]] = v; };
   const MAX_KEYS = 32, MAX_PATHS = 40; // what sanitizeKeys keeps
   const XF_LABELS = { scale: 'Scale', rotate: 'Rotate', ox: 'Offset x', oy: 'Offset y' };
+  // one limit toast per gesture (a slider drag, a typed value, a click): reset on commit and on pointerup
+  let warned = false;
+  const warnOnce = (msg) => { if (warned) return; warned = true; toast(msg); };
+  addEventListener('pointerup', () => { warned = false; }, true);
   const KF = {
     EASES: [['ease', 'Ease'], ['linear', 'Linear'], ['hold', 'Hold'], ['in', 'Ease in'], ['out', 'Ease out']],
     frames: () => E.frameCount(A.state.anim),
@@ -30,14 +34,22 @@
     // the value shown at moment t (default: the playhead)
     value(item, path, t) { const ks = KF.list(item, path); return ks ? E.keyValue(ks, t ?? KF.now().t) : getP(item, path); },
     at(item, path, t) { const ks = KF.list(item, path); if (!ks) return null; const f = KF.frameOf(t); return ks.find((k) => KF.frameOf(k.t) === f) || null; },
+    // why a key can't be added at t (default: the playhead), or '' when it can (an existing key can always change)
+    limit(item, path, t) {
+      if (KF.at(item, path, t ?? KF.now().t)) return '';
+      const ks = KF.list(item, path) || [];
+      if (ks.length >= MAX_KEYS) return `A value can have up to ${MAX_KEYS} keys.`;
+      if (!ks.length && KF.paths(item).length >= MAX_PATHS) return `Up to ${MAX_PATHS} values can be animated per layer.`;
+      return '';
+    },
     // add or update the key at t (default: the playhead); returns { key, created } or null at the limit
     put(item, path, v, t) {
       t = KF.snap(t ?? KF.now().t);
       const hit = KF.at(item, path, t);
       if (hit) { hit.v = v; return { key: hit, created: false }; }
+      const why = KF.limit(item, path, t);
+      if (why) { warnOnce(why); return null; }
       const ks = KF.list(item, path) || [];
-      if (ks.length >= MAX_KEYS) { toast(`A value can have up to ${MAX_KEYS} keys.`); return null; }
-      if (!ks.length && KF.paths(item).length >= MAX_PATHS) { toast(`Up to ${MAX_PATHS} values can be animated per layer.`); return null; }
       const key = { t, v, e: 'ease' };
       ks.push(key); ks.sort((a, b) => a.t - b.t);
       item.keys = item.keys || {}; item.keys[path] = ks;
@@ -55,6 +67,8 @@
       if (Number.isFinite(v)) setP(item, path, Math.round(v * 1e4) / 1e4);
       if (!Object.keys(item.keys).length) delete item.keys;
     },
+    // the gesture is over: the next limit hit toasts again
+    endGesture() { warned = false; },
     label(item, kind, path) {
       if (path === 'opacity') return 'Opacity';
       if (path.startsWith('xf.')) return XF_LABELS[path.slice(3)] || path.slice(3);
@@ -80,16 +94,17 @@
   const CLIP = '<path d="M6 4v7a4 4 0 0 0 4 4h9"/><path d="m15 11 4 4-4 4"/>';
 
   // Key buttons of the open settings panel, kept in step with the playhead.
-  let live = []; // { kb, item, path, sl }
-  function keyBtn(label, item, path, sl) {
+  let live = []; // { kb, item, path, sl, show }; show(t): extra display kept in step (the strength chips)
+  function keyBtn(label, item, path, sl, show) {
     const name = 'Keyframe for ' + label;
     const kb = h('button', { type: 'button', class: 'icon-btn sm kf-btn', 'aria-label': name, 'data-tip': name, 'aria-pressed': 'false', onclick: () => toggleKey(item, path) }, svg(DIAMOND));
-    const x = { kb, item, path, sl };
+    const x = { kb, item, path, sl, show };
     kb._kf = x; live.push(x); syncKey(x);
     return kb;
   }
   // off: not animated (small outline) · anim: animated, no key here (ring with a dot) · key: a key at this frame (filled)
   function syncKey(x, t = KF.now().t) {
+    if (x.show) x.show(t);
     const anim = KF.animated(x.item, x.path), here = anim && !!KF.at(x.item, x.path, t);
     const st = here ? 'key' : anim ? 'anim' : 'off';
     if (x.kb.dataset.state === st) return;
@@ -100,6 +115,7 @@
   function toggleKey(item, path) {
     const { t } = KF.now();
     const here = KF.at(item, path, t);
+    KF.endGesture(); // a click is a gesture of its own
     if (here) KF.remove(item, path, here);
     else if (!KF.put(item, path, KF.value(item, path, t), t)) return;
     A.changed(true); keysChanged();
@@ -125,12 +141,13 @@
         if (KF.animated(item, path)) {
           A.pause && A.pause();
           const r = KF.put(item, path, x);
+          if (!r) { sl.set(KF.value(item, path)); return; } // at the key limit: the slider goes straight back
           syncKey(kb._kf);
           if (r && r.created && A.refreshTimeline) A.refreshTimeline();
         } else KF.setBase(item, path, x);
         opts.onInput && opts.onInput(x);
       },
-      onCommit: (x) => { opts.onCommit && opts.onCommit(x); if (KF.animated(item, path)) keysChanged(); },
+      onCommit: (x) => { KF.endGesture(); opts.onCommit && opts.onCommit(x); if (KF.animated(item, path)) keysChanged(); },
     }));
     const kb = keyBtn(label, item, path, sl);
     sl.querySelector('.top').append(kb);
@@ -138,14 +155,28 @@
   }
 
   // Palette strengths live inside the shared palette editor, so they're keyed from a row of chips under it.
+  // The editor's sliders show the base strengths; an animated strength shows its value at the playhead on its chip.
   function strengthKeys(item, k, pal) {
     const row = h('div', { class: 'kf-str' });
-    row.rebuild = () => row.replaceChildren(h('span', { class: 'label' }, 'Animate colour strengths'), ...pal.colors.map((col, i) => {
-      const b = keyBtn(`colour ${i + 1} strength`, item, `params.${k}.colors.${i}.w`, null);
-      b.classList.add('kf-chip');
-      b.append(h('i', { style: { background: col.c } }), h('span', null, String(i + 1)));
-      return b;
-    }));
+    const note = h('p', { class: 'hint', hidden: true }, 'The strength sliders show base values. A chip shows its animated strength at the playhead.');
+    const pathOf = (i) => `params.${k}.colors.${i}.w`;
+    row.sync = () => { note.hidden = !pal.colors.some((_, i) => KF.animated(item, pathOf(i))); };
+    row.rebuild = () => {
+      row.replaceChildren(h('span', { class: 'label' }, 'Animate colour strengths'), ...pal.colors.map((col, i) => {
+        const val = h('span', { class: 'kf-val', hidden: true });
+        const show = (t) => {
+          const anim = KF.animated(item, pathOf(i));
+          val.hidden = !anim;
+          if (anim) val.textContent = PL.fmtNum(KF.value(item, pathOf(i), t), 2);
+          row.sync();
+        };
+        const b = keyBtn(`colour ${i + 1} strength`, item, pathOf(i), null, show);
+        b.classList.add('kf-chip');
+        b.append(h('i', { style: { background: col.c } }), h('span', null, String(i + 1)), val);
+        return b;
+      }), note);
+      row.sync();
+    };
     row.rebuild();
     return row;
   }
@@ -196,6 +227,107 @@
     toast(`Ungrouped ${g.name}. Ctrl+Z brings it back.`);
   }
 
+  // Folding a group is a view setting, like an open panel: kept out of the document, so it's never an
+  // undo step (a later commit or Undo would otherwise pick a changed g.collapsed up). g.collapsed from a
+  // file is the default until the group is folded or opened here.
+  const FOLD_KEY = 'cyexPaints.foldedGroups';
+  let foldState = new Map(); // group id -> folded
+  try { const f = JSON.parse(localStorage.getItem(FOLD_KEY) || '[]'); if (Array.isArray(f)) foldState = new Map(f.filter((x) => Array.isArray(x) && x.length === 2)); } catch (e) {}
+  const saveFold = () => { try { localStorage.setItem(FOLD_KEY, JSON.stringify([...foldState].slice(-200))); } catch (e) {} };
+  const isFolded = (g) => (foldState.has(g.id) ? !!foldState.get(g.id) : !!g.collapsed);
+
+  // ---- moving rows of the layers list (top first): layers, and groups as a whole ----
+  // a row of the list: { g } for a group's folder row, { l } for a layer row
+  const rowsOf = (d, list) => [...list.children].filter((x) => x.classList.contains('sortable-item')).map((row) => {
+    const g = d.groups.find((x) => x.id === row.dataset.id);
+    return g ? { g } : { l: d.layers.find((x) => x.id === row.dataset.id) };
+  });
+  const runOf = (d, gid) => d.layers.filter((l) => l.group === gid); // bottom first, like the stack
+  const blockOf = (d, r) => (r.g ? runOf(d, r.g.id) : r.l.group ? runOf(d, r.l.group) : [r.l]);
+  // moves the layers of run next to block in the stack; below = under it in the list
+  function placeRun(L, run, block, below) {
+    for (const l of run) L.splice(L.indexOf(l), 1);
+    const i = below ? L.indexOf(block[0]) : L.indexOf(block[block.length - 1]) + 1;
+    L.splice(i, 0, ...run);
+  }
+  function moveLayerRow(d, m, T, below, kb) {
+    const L = d.layers;
+    if (T.l) {
+      const target = T.l;
+      if (target === m) return false;
+      if (kb && (m.group || '') !== (target.group || '')) {
+        // with the keyboard, crossing a group edge is a step of its own: leave the group in place, or join the next one
+        if (m.group) delete m.group;
+        else { m.group = target.group; normalizeGroups(d, m, !below); }
+      } else {
+        moveLayer(L, m, target, below);
+        // a dragged layer joins the group of the row it was dropped on (or leaves its own)
+        if (!kb) { if (target.group) m.group = target.group; else delete m.group; }
+      }
+      return true;
+    }
+    // onto a group's folder row
+    const g = T.g, run = runOf(d, g.id).filter((l) => l !== m);
+    if (m.group === g.id) { delete m.group; if (run.length) placeRun(L, [m], run, false); return true; } // its own: leaves it, above
+    if (kb && m.group) { delete m.group; return true; } // leaving its own group first, as above
+    if (!run.length) { m.group = g.id; return true; } // an empty group: the layer starts it
+    if (below && !isFolded(g)) { m.group = g.id; normalizeGroups(d, m, false); return true; } // down onto an open group: joins on top
+    delete m.group; placeRun(L, [m], run, below); // up onto a group, or onto a folded one: past the whole group
+    return true;
+  }
+  function moveGroup(d, rows, from, to, kb) {
+    const g = rows[from].g, run = runOf(d, g.id), below = to > from;
+    if (!run.length) {
+      // empty groups sit on top: only their order among themselves changes
+      const T = rows[to];
+      if (!T || !T.g || runOf(d, T.g.id).length) return false;
+      const G = d.groups; G.splice(G.indexOf(g), 1); G.splice(G.indexOf(T.g) + (below ? 1 : 0), 0, g);
+      return true;
+    }
+    let T = rows[to];
+    if (kb) {
+      // the keyboard steps past a whole neighbour: the row above the folder row, or the first row after the group's layers
+      let j = from + (below ? 1 : -1);
+      if (below) while (rows[j] && rows[j].l && rows[j].l.group === g.id) j++;
+      T = rows[j];
+    }
+    if (!T || (T.l && T.l.group === g.id)) return false;
+    if (T.g && !runOf(d, T.g.id).length) return false; // the empty groups on top stay on top
+    placeRun(d.layers, run, blockOf(d, T), below);
+    return true;
+  }
+  function moveRow(d, list, from, to, kb) {
+    const rows = rowsOf(d, list), r = rows[from];
+    if (!r || !rows[to] || from === to) return;
+    const id = r.g ? r.g.id : r.l && r.l.id; if (!id) return;
+    // the keyboard keeps the moved row's grip, also when nothing could move (after sortable's own refocus)
+    const f = () => $(`#editor [data-id="${id}"] .grip`)?.focus();
+    if (!(r.g ? moveGroup(d, rows, from, to, kb) : moveLayerRow(d, r.l, rows[to], to > from, kb))) { if (kb) setTimeout(() => setTimeout(f)); return; }
+    normalizeGroups(d);
+    A.renderEditor(); A.changed(true);
+    if (kb) { f(); setTimeout(() => setTimeout(f)); }
+  }
+
+  // layers list (top layer first), with group folders; layers of a folded group aren't listed
+  function layersList(d) {
+    const gById = new Map(d.groups.map((g) => [g.id, g]));
+    const list = h('div', { class: 'list', role: 'list', 'aria-label': 'Layers, top first' });
+    const items = [...d.layers].reverse();
+    if (!items.length && !d.groups.length) list.append(h('div', { class: 'empty', role: 'listitem' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
+    const counts = new Map();
+    for (const l of d.layers) if (l.group) counts.set(l.group, (counts.get(l.group) || 0) + 1);
+    for (const g of d.groups) if (!counts.has(g.id)) list.append(groupRow(d, g, 0)); // empty groups sit on top
+    const shown = new Set();
+    for (const l of items) {
+      const g = l.group ? gById.get(l.group) : null;
+      if (g && !shown.has(g.id)) { shown.add(g.id); list.append(groupRow(d, g, counts.get(g.id))); }
+      if (g && isFolded(g)) continue;
+      list.append(listItem(l, 'layer', d.layers, g));
+    }
+    sortable(list, (from, to, kb) => moveRow(d, list, from, to, kb));
+    return list;
+  }
+
   // =====================================================================================
   // Animated editor
   // =====================================================================================
@@ -230,7 +362,7 @@
   function syncNames(item) {
     const s = findSel();
     const row = $(`#editor [data-id="${item.id}"]`);
-    const nb = row && row.querySelector('button.name'); if (nb) nb.textContent = item.name;
+    const nb = row && row.querySelector('button.name'); if (nb) { nb.textContent = item.name; nb.title = nameTitle(item.name, ITEM_RENAME); }
     const g = row && row.querySelector('.grip'); if (g) g.setAttribute('aria-label', 'Move ' + item.name);
     if (s && s.item === item) {
       const def = s.kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
@@ -246,42 +378,11 @@
     const colA = h('div', { class: 'col' }), colB = h('div', { class: 'col settings-col' });
     root.append(colA, colB);
 
-    // layers list (top layer first), with group folders; layers of a collapsed group aren't listed
     if (!Array.isArray(d.groups)) d.groups = [];
-    const gById = new Map(d.groups.map((g) => [g.id, g]));
-    for (const l of d.layers) if (l.group && !gById.has(l.group)) delete l.group;
+    const gIds = new Set(d.groups.map((g) => g.id));
+    for (const l of d.layers) if (l.group && !gIds.has(l.group)) delete l.group;
     if (normalizeGroups(d)) A.rt.dirty = true; // only hand-edited files have split groups
-    const layerList = h('div', { class: 'list', role: 'list', 'aria-label': 'Layers, top first' });
-    const items = [...d.layers].reverse();
-    if (!items.length && !d.groups.length) layerList.append(h('div', { class: 'empty', role: 'listitem' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
-    const counts = new Map();
-    for (const l of d.layers) if (l.group) counts.set(l.group, (counts.get(l.group) || 0) + 1);
-    for (const g of d.groups) if (!counts.has(g.id)) layerList.append(groupRow(d, g, 0)); // empty groups sit on top
-    const vis = []; // the layer rows in list order, for the drag indices
-    const shown = new Set();
-    for (const l of items) {
-      const g = l.group ? gById.get(l.group) : null;
-      if (g && !shown.has(g.id)) { shown.add(g.id); layerList.append(groupRow(d, g, counts.get(g.id))); }
-      if (g && g.collapsed) continue;
-      layerList.append(listItem(l, 'layer', d.layers, g)); vis.push(l);
-    }
-    sortable(layerList, (from, to, kb) => {
-      const m = vis[from], target = vis[to];
-      if (!m || !target || m === target) return;
-      const below = to > from;
-      if (kb && (m.group || '') !== (target.group || '')) {
-        // with the keyboard, crossing a group edge is a step of its own: leave the group in place, or join the next one
-        if (m.group) delete m.group;
-        else { m.group = target.group; normalizeGroups(d, m, !below); }
-      } else {
-        moveLayer(d.layers, m, target, below);
-        // a dragged layer joins the group of the row it was dropped on (or leaves its own)
-        if (!kb) { if (target.group) m.group = target.group; else delete m.group; }
-      }
-      normalizeGroups(d);
-      A.renderEditor(); A.changed(true);
-      if (kb) { const f = () => $(`#editor [data-id="${m.id}"] .grip`)?.focus(); f(); setTimeout(() => setTimeout(f)); } // after sortable's own refocus
-    });
+    const layerList = layersList(d);
     colA.append(panel('Layers', [layerList, h('div', { class: 'row' },
       btn('Add layer', () => A.openLibrary('layer'), 'secondary small', 'plus'),
       btn('Add element', () => A.openLibrary('layer', 'Scene elements'), 'ghost small', 'sparkles'),
@@ -304,6 +405,21 @@
     scheduleThumbs(true);
   }
 
+  // A new frame count (fps or loop length): every key moves to a whole frame of the new count,
+  // and of two keys that land on one frame the later one stays
+  function resnapKeys(d) {
+    const n = E.frameCount(d);
+    for (const it of [...d.layers, ...d.effects]) {
+      if (!it.keys) continue;
+      for (const [path, ks] of Object.entries(it.keys)) {
+        if (!Array.isArray(ks)) continue;
+        const at = new Map();
+        for (const k of ks.slice().sort((a, b) => a.t - b.t)) at.set(PL.clamp(Math.round(k.t * n), 0, n - 1), k);
+        it.keys[path] = [...at].sort((a, b) => a[0] - b[0]).map(([f, k]) => { k.t = f / n; return k; });
+      }
+    }
+  }
+
   function paintPanel(d) {
     const info = h('span', { class: 'stat' });
     const setInfo = () => { info.textContent = `${E.frameCount(d)} frames · ${PL.fmtNum(d.duration, 1)} s · ${Math.round(100 / d.fps)} cs per frame`; };
@@ -318,8 +434,8 @@
       group('Size and timing', [
         h('div', { class: 'ctl' }, h('div', { class: 'top' }, h('span', { class: 'label' }, 'Size'), wIn, h('span', { class: 'unit' }, '×'), hIn, h('span', { class: 'unit' }, 'px')), sizePresets,
           h('p', { class: 'hint' }, '7TV stretches the image across the name, so a wide strip works best.')),
-        labeled('Frames per second', seg(FPS, d.fps, (v) => { d.fps = v; setInfo(); A.changed(true); }, 'Frames per second')),
-        slider('Loop length', d.duration, { min: 0.4, max: 8, step: 0.1, unit: 's', onInput: (v) => { d.duration = v; setInfo(); A.changed(false); }, onCommit: () => A.commit() }),
+        labeled('Frames per second', seg(FPS, d.fps, (v) => { d.fps = v; setInfo(); resnapKeys(d); A.changed(true); keysChanged(); }, 'Frames per second')),
+        slider('Loop length', d.duration, { min: 0.4, max: 8, step: 0.1, unit: 's', onInput: (v) => { d.duration = v; setInfo(); A.changed(false); }, onCommit: () => { resnapKeys(d); A.changed(true); keysChanged(); } }),
         info,
       ]),
       group('Recolour everything', A.tweakControls(d.tweak, 'Shifts the colours of the whole paint, after all layers and effects.')),
@@ -339,40 +455,62 @@
     return b;
   }
 
-  // A group's folder row: the name button collapses (click or Enter), F2 or double-click renames, Delete ungroups.
+  // the name buttons' tooltip: the full name (it may be cut off), then how to rename
+  const nameTitle = (name, how) => name + '\n' + how;
+  const ITEM_RENAME = 'Double-click or F2 to rename', GROUP_RENAME = 'Double-click the name or F2 to rename';
+
+  // A group's folder row: the grip moves the whole group (drag, or Alt+Up and Alt+Down), the name button
+  // folds and opens it at once (click, Enter or Space), F2 or a double-click on the name renames, Delete ungroups.
   function groupRow(d, g, count) {
     const text = h('span', null, g.name);
-    let clickT = 0;
-    const toggle = () => { g.collapsed = !g.collapsed; A.renderEditor(); A.changed(true); };
-    // a single click waits a moment, so a double-click can rename instead
-    const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-expanded': String(!g.collapsed), onclick: (e) => { clearTimeout(clickT); if (e.detail > 1) return; if (e.detail === 0) toggle(); else clickT = setTimeout(toggle, 220); } }, icon('chevron'), text);
-    nameEl.addEventListener('dblclick', () => {
-      clearTimeout(clickT);
+    const inName = h('span', { class: 'sr-only', id: 'gin-' + g.id }, 'In ' + g.name); // members' description
+    const gr = grip('Move ' + g.name);
+    let row = null;
+    // in place, no re-render and no history step: the member rows are added or removed under the folder row
+    const toggle = () => {
+      const fold = !isFolded(g);
+      foldState.set(g.id, fold); saveFold();
+      nameEl.setAttribute('aria-expanded', String(!fold));
+      const list = row.parentElement; if (!list) return;
+      if (fold) { for (const r of [...list.children]) if (r.dataset.group === g.id) r.remove(); return; }
+      const members = d.layers.filter((l) => l.group === g.id).reverse(); // top first
+      row.after(...members.map((l) => listItem(l, 'layer', d.layers, g)));
+      scheduleThumbs(true);
+    };
+    const nameEl = h('button', { type: 'button', class: 'name', title: nameTitle(g.name, GROUP_RENAME), 'aria-expanded': String(!isFolded(g)), onclick: (e) => { if (e.detail < 2) toggle(); } }, icon('chevron'), text);
+    const rename = () => {
       const inp = h('input', { class: 'field rename', value: g.name, maxlength: 64, 'aria-label': 'Rename group' });
       let finished = false;
       const done = (ok, byKey) => {
         if (finished) return; finished = true;
-        if (ok && inp.value.trim() && inp.value.trim() !== g.name) { g.name = inp.value.trim(); text.textContent = g.name; A.changed(true); }
+        if (ok && inp.value.trim() && inp.value.trim() !== g.name) {
+          g.name = inp.value.trim(); text.textContent = g.name; inName.textContent = 'In ' + g.name;
+          nameEl.title = nameTitle(g.name, GROUP_RENAME); gr.setAttribute('aria-label', 'Move ' + g.name);
+          A.changed(true);
+        }
         inp.replaceWith(nameEl);
         if (byKey) nameEl.focus();
       };
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); done(true, true); } if (e.key === 'Escape') { e.preventDefault(); done(false, true); } e.stopPropagation(); });
       inp.addEventListener('blur', () => done(true));
       nameEl.replaceWith(inp); inp.focus(); inp.select();
-    });
-    return h('div', {
-      class: 'item ghdr' + (g.visible ? '' : ' off'), role: 'listitem', 'data-id': g.id,
+    };
+    // a double-click's first click already folded or opened the group: undo that, then rename
+    text.addEventListener('dblclick', () => { toggle(); rename(); });
+    row = h('div', {
+      class: 'item ghdr sortable-item' + (g.visible ? '' : ' off'), role: 'listitem', 'data-id': g.id,
       onkeydown: (e) => {
         if (e.target !== nameEl) return;
-        if (e.key === 'F2') { e.preventDefault(); nameEl.dispatchEvent(new MouseEvent('dblclick')); }
+        if (e.key === 'F2') { e.preventDefault(); rename(); }
         if (e.key === 'Delete') { e.preventDefault(); ungroup(d, g); }
       },
     },
-    h('span', { class: 'gicon', 'aria-hidden': 'true' }, icon('folder')), nameEl,
+    gr, h('span', { class: 'gicon', 'aria-hidden': 'true' }, icon('folder')), nameEl, inName,
     h('span', { class: 'meta' }, count === 1 ? '1 layer' : `${count} layers`),
     h('span', { class: 'tools' },
       iconBtn(g.visible ? 'eye' : 'eyeOff', 'Visible', () => { g.visible = !g.visible; A.renderEditor(); A.changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(g.visible), 'data-tip': g.visible ? 'Hide group' : 'Show group' } }),
-      iconBtn('trash', 'Delete group', () => ungroup(d, g), { cls: 'sm danger', attrs: { 'data-hint': 'Keeps its layers' } })));
+      iconBtn('x', 'Ungroup', () => ungroup(d, g), { cls: 'sm', attrs: { 'data-hint': 'Keeps its layers' } })));
+    return row;
   }
 
   function listItem(item, kind, list, grp) {
@@ -382,7 +520,8 @@
     const idx = list.indexOf(item);
     const select_ = () => selectItem(kind, item.id);
     // the name is the row's real control: a named button that selects (Enter or Space), F2 or double-click renames, Delete removes
-    const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-current': isSel ? 'true' : null, 'aria-describedby': null, onclick: () => select_() }, item.name || def.name);
+    // a group member's name is described as "In <group>"
+    const nameEl = h('button', { type: 'button', class: 'name', title: nameTitle(item.name || def.name, ITEM_RENAME), 'aria-current': isSel ? 'true' : null, 'aria-describedby': grp ? 'gin-' + grp.id : null, onclick: () => select_() }, item.name || def.name);
     nameEl.addEventListener('dblclick', () => {
       const inp = h('input', { class: 'field rename', value: item.name || def.name, maxlength: 64, 'aria-label': 'Rename' });
       let finished = false;
@@ -401,7 +540,7 @@
     if (kind === 'layer' && item.blend !== 'normal') meta.push((PL.BLENDS.find((b) => b[0] === item.blend) || [, ''])[1].split(' (')[0]);
     if (kind === 'layer' && item.opacity < 1) meta.push(Math.round(item.opacity * 100) + '%');
     const el = h('div', {
-      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off') + (grp ? ' ingroup' : '') + (grp && !grp.visible ? ' ghidden' : '') + (kind === 'layer' && item.clip ? ' clipped' : ''), role: 'listitem', 'data-id': item.id,
+      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off') + (grp ? ' ingroup' : '') + (grp && !grp.visible ? ' ghidden' : '') + (kind === 'layer' && item.clip ? ' clipped' : ''), role: 'listitem', 'data-id': item.id, 'data-group': grp ? grp.id : null,
       onclick: (e) => { if (e.target.closest('button, input')) return; select_(); },
       onkeydown: (e) => {
         if (e.target !== nameEl) return;
@@ -417,7 +556,7 @@
     h('span', { class: 'tools' },
       iconBtn(item.visible ? 'eye' : 'eyeOff', 'Visible', () => { item.visible = !item.visible; A.renderEditor(); A.changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(item.visible), 'data-tip': item.visible ? 'Hide' : 'Show' } }),
       iconBtn('dup', 'Duplicate', () => { const c = clone(item); c.id = PL.uid(kind[0]); list.splice(idx + 1, 0, c); A.state.sel = { kind, id: c.id }; A.renderEditor(); A.changed(true); }, { cls: 'sm' }),
-      iconBtn('trash', 'Delete', () => remove(), { cls: 'sm danger', attrs: { 'data-hint': 'Delete key' } })));
+      iconBtn('trash', 'Delete', () => remove(), { cls: 'sm danger', attrs: { 'data-hint': 'Delete (Del)' } })));
     function remove() { list.splice(list.indexOf(item), 1); if (isSel) A.state.sel = null; A.renderEditor(); A.changed(true); toast(`Removed ${item.name || def.name}. Ctrl+Z brings it back.`); }
     return el;
   }
@@ -464,9 +603,15 @@
             // a strength slider moved while that strength is animated: it sets the key at the playhead
             cols.forEach((col, i) => {
               if (col.w === prevW[i] || !KF.animated(item, pre + i + '.w')) return;
-              A.pause && A.pause(); KF.put(item, pre + i + '.w', col.w); keyed = true;
+              A.pause && A.pause();
+              if (KF.put(item, pre + i + '.w', col.w)) { keyed = true; return; }
+              // at the key limit: the strength and its slider go straight back
+              col.w = prevW[i];
+              const r = ed.querySelector(`input[type="range"][aria-label="Colour ${i + 1} strength"]`);
+              if (r) { r.value = col.w; r.style.setProperty('--p', (col.w / 4) * 100 + '%'); }
             });
           }
+          if (c) KF.endGesture();
           prev = cols.slice(); prevW = cols.map((x) => x.w);
           if (keyed) pending = true;
           if (!same || c) keysRow.rebuild(); // colour count, order and swatches
@@ -515,6 +660,15 @@
         A.changed(true);
       });
       clip.dataset.tip = 'Clip to layer below'; clip.dataset.hint = 'Shows this layer only where the layer under it is drawn';
+      // nothing below to clip to: the bottom layer, or the bottom of its group (still on, it can be turned off)
+      const L = d.layers, bottom = L[0] === item || (!!item.group && L.find((l) => l.group === item.group) === item);
+      let why = null;
+      if (bottom && !item.clip) {
+        const msg = item.group ? 'It’s the bottom layer of its group, so there’s nothing below it to clip to' : 'It’s the bottom layer, so there’s nothing below it to clip to';
+        why = h('span', { class: 'sr-only', id: 'clipWhy' }, msg);
+        const box = clip.querySelector('input'); box.disabled = true; box.setAttribute('aria-describedby', 'clipWhy');
+        clip.dataset.hint = msg;
+      }
       top.push(h('div', { class: 'split' },
         labeled('Group', select(gOpts, item.group || '', (v) => {
           if (v === '+new') { if (!addGroup(d, item)) { A.renderEditor(); return; } }
@@ -522,7 +676,7 @@
           else { delete item.group; normalizeGroups(d); }
           A.renderEditor(); A.changed(true);
         }, 'Group')),
-        h('div', { class: 'ctl kf-clip' }, clip)));
+        h('div', { class: 'ctl kf-clip' }, clip, why)));
     }
     const groups = new Map();
     for (const pd of def.params) {
