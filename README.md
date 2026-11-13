@@ -43,3 +43,12 @@ All motion uses whole cycles per loop, so every export loops without a seam.
 Exports: GIF (own encoder, 64–256 colours, optional dither), APNG, frame PNG, sprite sheet, animated name GIF, project file.
 
 Not affiliated with, endorsed by, or sponsored by 7TV or Twitch.
+
+## Also in the editor
+- **Keyframes:** the diamond next to any slider keys that value at the playhead; the Keyframes group shows a timeline (drag keys, pick easing, keyboard: arrows move a frame, Delete removes, Enter cycles easing). Keyed loops stay seamless.
+- **Groups and clip masks:** "New group" folds layers into folders you can hide; "Clip to layer below" shows a layer only inside the one under it.
+- **Exports:** GIF, WebP (usually several times smaller) or APNG, with a size estimate; rendering runs in a background worker in the bundled page.
+- **Static paints:** Classic or Layered (7TV's gradients format with position, size, repeat, text weight, outline and text shadows).
+- **My paints** keeps many paints in this browser (Ctrl+S saves); **History** lists every step to jump back to.
+- **From image** takes palette colours from a picture; **Surprise me** in Presets makes a random paint.
+- **Self-test:** open `cyex-paints-tests.html` after changes; it renders everything and compares it with `js/tests-baseline.js`.
