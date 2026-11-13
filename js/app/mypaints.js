@@ -28,34 +28,40 @@
   const LIB_KEY = 'cyexPaints.library';
   const UNAVAILABLE = 'This browser is blocking storage here, so My paints isn’t available. Use Save project or Copy JSON to keep a paint.';
   const FULL = 'Browser storage is full. Delete some saved paints and try again.';
-  const NAME_MAX = 60;
+  const NAME_MAX = 64; // the paint name field allows the same
+  const WARN_BYTES = 3.5 * 1024 * 1024;
 
-  // { ok: false } when storage can't be read; otherwise { ok: true, items }
+  // { ok: false } when storage can't be read; otherwise { ok: true, items, bytes }.
+  // The parsed library is kept in memory and dropped on every write (and when another tab changes it).
+  let libCache = null;
+  try { window.addEventListener('storage', (ev) => { if (!ev.key || ev.key === LIB_KEY) libCache = null; }); } catch (_) {}
   function readLib() {
+    if (libCache) return libCache;
     let raw;
-    try { raw = localStorage.getItem(LIB_KEY); } catch (_) { return { ok: false, items: [] }; }
-    if (raw == null || raw === '') return { ok: true, items: [] };
+    try { raw = localStorage.getItem(LIB_KEY); } catch (_) { return { ok: false, items: [], bytes: 0 }; }
+    if (raw == null || raw === '') return (libCache = { ok: true, items: [], bytes: 0 });
     try {
       const arr = JSON.parse(raw);
       if (!Array.isArray(arr)) throw new Error('not a list');
       const items = arr.filter((e) => e && typeof e.id === 'string' && (e.mode === 'static' || e.mode === 'anim') && e.data && typeof e.data === 'object')
         .map((e) => Object.assign({}, e, { name: String(e.name || '').trim() || 'Untitled paint' }));
-      return { ok: true, items };
+      return (libCache = { ok: true, items, bytes: raw.length });
     } catch (_) {
       // unreadable library: keep a copy before anything can overwrite it
       try { localStorage.setItem(LIB_KEY + '.broken', raw); } catch (__) {}
-      return { ok: true, items: [] };
+      return (libCache = { ok: true, items: [], bytes: 0 });
     }
   }
   function writeLib(items) {
+    libCache = null;
     try { localStorage.setItem(LIB_KEY, JSON.stringify(items)); return true; } catch (_) { return false; }
   }
 
   // =====================================================================================
-  // Thumbnails: 160 x 40 PNG data URL. Static paints use Paint.rasterize; animated ones render one frame.
+  // Thumbnails: 320 x 80 PNG data URL (shown at half size for sharpness). Static paints use Paint.rasterize; animated ones render one frame.
   // =====================================================================================
   function makeThumb() {
-    const W = 160, H = 40;
+    const W = 320, H = 80;
     try {
       let img;
       if (A.state.mode === 'anim') {
@@ -143,7 +149,8 @@
   function duplicateEntry(entry) {
     const lib = readLib();
     if (!lib.ok) { toast(UNAVAILABLE, 'error'); return; }
-    const name = (entry.name + ' copy').slice(0, NAME_MAX);
+    const SUFFIX = ' copy';
+    const name = entry.name.slice(0, NAME_MAX - SUFFIX.length).trimEnd() + SUFFIX; // trim the base so the suffix always fits
     const copy = Object.assign({}, entry, { id: newId(), name, savedAt: new Date().toISOString(), data: Object.assign({}, entry.data, { name }) });
     if (!writeLib([copy].concat(lib.items))) { toast(FULL, 'error'); return; }
     toast(`Duplicated as ${q(name)}.`, 'success');
@@ -181,16 +188,28 @@
     const saveB = h('button', { type: 'button', class: 'btn primary', onclick: () => saveCurrent(false) }, icon('save'), 'Save current paint');
     const newB = h('button', { type: 'button', class: 'btn secondary', onclick: () => saveCurrent(true) }, icon('plus'), 'Save as new');
     const info = h('p', { class: 'hint mp-info' });
+    const warn = h('p', { class: 'hint mp-warn' });
+    warn.hidden = true;
+    const live = h('p', { class: 'sr-only', role: 'status', 'aria-live': 'polite' }); // announces the armed delete
     const grid = h('ul', { class: 'mp-grid', 'aria-label': 'Saved paints' });
     const foot = h('p', { class: 'hint' }, 'Paints are kept in this browser only. Clearing site data removes them, so export what you can’t lose.');
-    const body = h('div', { class: 'mp' }, h('div', { class: 'mp-bar' }, h('div', { class: 'search' }, icon('search'), search), newB, saveB), info, grid, foot);
+    const body = h('div', { class: 'mp' }, h('div', { class: 'mp-bar' }, h('div', { class: 'search' }, icon('search'), search), newB, saveB), info, warn, grid, foot, live);
+
+    // the "Opened from" line, the Save as new button and the size hint; cheap, so a rename can call it without redrawing the list
+    const updateInfo = () => {
+      const lib = readLib();
+      if (!lib.ok) return;
+      const from = originEntry(lib.items);
+      newB.hidden = !from;
+      info.textContent = from ? `Opened from ${q(from.name)}. Save current paint replaces it; Save as new keeps both.` : 'Save current paint adds the open paint as a new entry.';
+      warn.hidden = lib.bytes < WARN_BYTES;
+      if (!warn.hidden) warn.textContent = `Your library is getting large (${PL.fmtBytes(lib.bytes)}). Browsers keep about 5 MB, so remove old paints or save them as files.`;
+    };
 
     const render = () => {
       const lib = readLib();
       if (!lib.ok) { grid.textContent = ''; grid.append(h('li', { class: 'empty' }, icon('folder'), h('span', null, UNAVAILABLE))); return; }
-      const from = originEntry(lib.items);
-      newB.hidden = !from;
-      info.textContent = from ? `Opened from ${q(from.name)}. Save current paint replaces it; Save as new keeps both.` : 'Save current paint adds the open paint as a new entry.';
+      updateInfo();
       const qy = search.value.trim().toLowerCase();
       const items = lib.items.slice().sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)))
         .filter((e) => !qy || (e.name + ' ' + (e.mode === 'anim' ? 'animated' : 'static')).toLowerCase().includes(qy));
@@ -202,13 +221,16 @@
       items.forEach((e) => grid.append(card(e)));
     };
     refresh = render;
-    search.addEventListener('input', render);
+    // search is debounced so typing stays smooth with a big library
+    let searchTimer = 0;
+    search.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(render, 120); });
 
     function card(e) {
       const nameEl = h('b', { class: 'mp-name', title: e.name }, e.name);
       const nameRow = h('div', { class: 'mp-namerow' }, nameEl, h('span', { class: 'mp-chip' }, e.mode === 'anim' ? 'Animated' : 'Static'));
+      // decorative only: the Open button is the one way in, so the picture is not a click target
       const thumb = e.thumb
-        ? h('img', { class: 'mp-thumb', src: e.thumb, alt: '', width: 160, height: 40, decoding: 'async', onclick: () => openEntry(e, dlg.close) })
+        ? h('img', { class: 'mp-thumb', src: e.thumb, alt: '', width: 320, height: 80, loading: 'lazy', decoding: 'async' })
         : h('div', { class: 'mp-thumb', 'aria-hidden': 'true' });
       const date = h('time', { class: 'mp-date', datetime: e.savedAt, title: A.fmtDate(e.savedAt) }, relative(e.savedAt));
 
@@ -221,7 +243,18 @@
         const finish = (commit, refocus) => {
           if (done) return; done = true;
           const value = input.value.trim().slice(0, NAME_MAX);
-          if (commit && value && value !== e.name && renameEntry(e, value)) { e.name = value; relabel(); }
+          if (commit && value && value !== e.name && renameEntry(e, value)) {
+            // the open paint came from this entry: rename it too, so the next Save doesn't put the old name back
+            const linked = e.id === originId && e.mode === A.state.mode && stillSame(e);
+            const was = e.name;
+            e.name = value; relabel();
+            if (linked) {
+              const cur = A.state[A.state.mode];
+              if (cur && cur.name !== value) { cur.name = value; A.renderAll(); A.commit(`Renamed ${short(was)} to ${short(value)}`); }
+              originRef = A.state[A.state.mode];
+            }
+            updateInfo();
+          }
           nameEl.textContent = e.name; nameEl.title = e.name;
           if (input.parentNode === nameRow) nameRow.replaceChild(nameEl, input);
           if (refocus) renB.focus();
@@ -229,36 +262,39 @@
         input.addEventListener('blur', () => finish(true, false));
         input.mpFinish = finish;
       };
-      const openB = h('button', { type: 'button', class: 'btn secondary small', onclick: () => openEntry(e, dlg.close) }, icon('folder'), 'Open');
+      const openB = h('button', { type: 'button', class: 'btn secondary small', 'aria-label': `Open ${e.name}`, onclick: () => openEntry(e, dlg.close) }, icon('folder'), 'Open');
       const renB = iconAction('pencil', `Rename ${e.name}`, startRename, 'mp-rename-btn');
       const dupB = iconAction('copy', `Duplicate ${e.name}`, () => { duplicateEntry(e); render(); (grid.querySelector('.mp-card .btn') || search).focus(); });
-      // arm, then confirm: the first click turns the button into "Click again to delete" for 3 s
-      let armTimer = 0;
+      // arm, then confirm: the first click turns the button into "Press again to delete". It stays armed
+      // until a second click, blur or Escape (no timer), and a polite live region says so.
       const delB = iconAction('trash', `Delete ${e.name}`, () => {
         if (!delB.classList.contains('armed')) {
           delB.classList.add('armed');
-          delB.textContent = 'Click again to delete';
-          delB.setAttribute('aria-label', `Click again to delete ${e.name}`); delB.removeAttribute('data-tip');
-          armTimer = setTimeout(disarm, 3000);
+          delB.textContent = 'Press again to delete';
+          delB.setAttribute('aria-label', `Press again to delete ${e.name}`); delB.removeAttribute('data-tip');
+          live.textContent = '';
+          setTimeout(() => { if (delB.classList.contains('armed')) live.textContent = `Press again to delete ${e.name}`; }, 50);
           return;
         }
-        clearTimeout(armTimer);
+        live.textContent = '';
         deleteEntry(e); render();
         (grid.querySelector('.mp-card .btn') || search).focus();
       }, 'danger mp-del');
       function relabel() {
+        openB.setAttribute('aria-label', `Open ${e.name}`);
         renB.setAttribute('aria-label', `Rename ${e.name}`); renB.setAttribute('data-tip', `Rename ${e.name}`);
         dupB.setAttribute('aria-label', `Duplicate ${e.name}`); dupB.setAttribute('data-tip', `Duplicate ${e.name}`);
         if (!delB.classList.contains('armed')) { delB.setAttribute('aria-label', `Delete ${e.name}`); delB.setAttribute('data-tip', `Delete ${e.name}`); }
       }
       function disarm() {
-        clearTimeout(armTimer);
-        if (!delB.isConnected) return;
+        if (!delB.isConnected || !delB.classList.contains('armed')) return;
         delB.classList.remove('armed');
         delB.textContent = ''; delB.append(ico('trash'));
         delB.setAttribute('aria-label', `Delete ${e.name}`); delB.setAttribute('data-tip', `Delete ${e.name}`);
+        live.textContent = '';
       }
-      delB.addEventListener('blur', () => { if (delB.classList.contains('armed')) disarm(); });
+      delB.mpDisarm = disarm;
+      delB.addEventListener('blur', disarm);
 
       return h('li', { class: 'mp-card' + (e.id === originId ? ' current' : ''), 'data-id': e.id }, thumb, nameRow, date, h('div', { class: 'mp-actions' }, openB, h('span', { class: 'mp-tools' }, renB, dupB, delB)));
     }
@@ -267,11 +303,18 @@
     // run Escape (close) first, so this one sits on window, which captures earlier.
     const keys = (ev) => {
       const t = ev.target;
-      if (!t || !t.classList || !t.classList.contains('mp-rename')) return;
+      if (!t || !t.classList) return;
+      if (ev.key === 'Escape' && t.mpDisarm && t.classList.contains('armed')) { ev.preventDefault(); ev.stopPropagation(); t.mpDisarm(); return; }
+      if (!t.classList.contains('mp-rename')) return;
       if (ev.key === 'Enter' || ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); t.mpFinish && t.mpFinish(ev.key === 'Enter', true); }
     };
     window.addEventListener('keydown', keys, true);
-    const dlg = dialog('My paints', body, { wide: true, onClose: () => { window.removeEventListener('keydown', keys, true); refresh = null; dlgOpen = null; } });
+    // a click elsewhere in the list disarms an armed delete even where buttons don't take focus on click
+    grid.addEventListener('pointerdown', (ev) => {
+      const keep = ev.target.closest && ev.target.closest('.mp-del');
+      grid.querySelectorAll('.mp-del.armed').forEach((b) => { if (b !== keep && b.mpDisarm) b.mpDisarm(); });
+    });
+    const dlg = dialog('My paints', body, { wide: true, onClose: () => { window.removeEventListener('keydown', keys, true); clearTimeout(searchTimer); refresh = null; dlgOpen = null; } });
     dlgOpen = dlg;
     render();
   }

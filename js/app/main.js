@@ -30,7 +30,7 @@
     };
     const items = steps.map((step, i) => h('button', { type: 'button', class: 'option hist', role: 'option', tabindex: '-1', 'aria-selected': String(step.current), 'aria-label': `${step.label}, ${A.fmtTime(step.time)}${step.current ? ', current' : ''}`, onclick: () => choose(i) },
       h('span', { class: 'hmark' }, step.current ? icon('check') : null),
-      h('span', { class: 'hlabel' }, step.label),
+      h('span', { class: 'hlabel', title: step.label }, step.label),
       h('time', { class: 'htime', title: A.fmtDate(step.time) }, A.fmtTime(step.time))));
     const mark = () => {
       items.forEach((b, i) => b.classList.toggle('kb', i === kb));
@@ -84,10 +84,13 @@
     // only text entry counts as typing; sliders, checkboxes and colour pickers keep the shortcuts
     const typing = e.target.closest && e.target.closest('input:not([type=range]):not([type=checkbox]):not([type=color]):not([type=file]), textarea, [contenteditable]');
     // Ctrl+S saves to My paints; it always blocks the browser's own Save page dialog
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); if (A.saveCurrent) A.saveCurrent(false); return; }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? A.redo() : A.undo(); }
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); A.redo(); }
-    else if (e.key === ' ' && !e.defaultPrevented && A.state.mode === 'anim' && !typing && !e.target.closest('button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); A.togglePlay(); }
+    // while a dialog is open the shortcuts act on nothing behind it
+    const dialogOpen = !!document.querySelector('.backdrop');
+    const key = (e.key || '').toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && key === 's') { e.preventDefault(); if (!dialogOpen && A.saveCurrent) A.saveCurrent(false); return; }
+    if ((e.ctrlKey || e.metaKey) && key === 'z' && !typing) { if (dialogOpen) return; e.preventDefault(); e.shiftKey ? A.redo() : A.undo(); }
+    else if ((e.ctrlKey || e.metaKey) && key === 'y' && !typing) { if (dialogOpen) return; e.preventDefault(); A.redo(); }
+    else if (e.key === ' ' && !e.defaultPrevented && A.state.mode === 'anim' && !typing && !e.target.closest('input, select, textarea, label, [role=slider], [role=checkbox], [role=spinbutton], button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); A.togglePlay(); }
   });
 
   // =====================================================================================

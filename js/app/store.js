@@ -27,7 +27,7 @@
   A.pendingNotice = null;
   function healDoc(doc, quiet) {
     const { doc: d, dropped } = E.sanitizeDoc(doc);
-    if (dropped && !quiet) toastLater(`Skipped ${dropped} layer${dropped > 1 ? 's' : ''} this version doesn't know.`);
+    if (dropped && !quiet) toastLater(`Skipped ${dropped} layer${dropped > 1 ? 's' : ''} this version doesn’t know.`);
     return d;
   }
   function toastLater(msg, kind = 'info') { if (typeof toast === 'function' && document.getElementById('toasts')) toast(msg, kind); else A.pendingNotice = [msg, kind]; }
@@ -106,16 +106,19 @@
     return `Edited ${short(x.name || noun)}`;
   }
   const KEY_LABELS = {
-    name: 'Renamed paint', width: 'Changed paint size', height: 'Changed paint size', fps: 'Changed timing', duration: 'Changed timing',
-    shadows: 'Changed shadows', tweak: 'Changed colour tweaks', groups: 'Changed layer groups', stops: 'Changed gradient stops',
+    name: 'Renamed paint', width: 'Changed paint size', height: 'Changed paint size', size: 'Changed paint size', fps: 'Changed frame rate', duration: 'Changed loop length',
+    loop: 'Changed loop length', loopLength: 'Changed loop length', shadows: 'Changed shadows', tweak: 'Changed colour tweaks', tweaks: 'Changed colour tweaks',
+    groups: 'Changed layer groups', stops: 'Changed gradient stops',
     angle: 'Changed gradient angle', function: 'Changed gradient type', repeat: 'Changed repeat', shape: 'Changed gradient shape',
   };
+  // a key without a fixed label still names itself ("backgroundColor" becomes "Changed background color")
+  const keyLabel = (k) => KEY_LABELS[k] || ('Changed ' + String(k).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase().slice(0, 24));
   function keysLabel(x, y, skip) {
     x = x || {}; y = y || {};
     const keys = [...new Set([...Object.keys(x), ...Object.keys(y)])].filter((k) => !(skip && skip.includes(k)) && !same(x[k], y[k]));
     if (!keys.length) return null;
     if (keys.length >= 4) return 'Replaced paint';
-    const labels = new Set(keys.map((k) => KEY_LABELS[k] || 'Changed paint settings'));
+    const labels = new Set(keys.map(keyLabel));
     return labels.size === 1 ? [...labels][0] : 'Changed paint settings';
   }
   function describe(prevS, nextS) {
@@ -151,8 +154,19 @@
     hist.last = entry;
     A.renderAll(); save(); updateUndo();
   }
-  const undo = () => { if (!hist.past.length) return; commit(); if (!hist.past.length) return; hist.future.push(hist.last); restore(hist.past.pop()); };
-  const redo = () => { commit(); if (!hist.future.length) return; hist.past.push(hist.last); restore(hist.future.pop()); };
+  // History changes are announced through the polite toast region, e.g. "Undid Added Glow".
+  const announce = (msg) => { try { toast(msg, 'info'); } catch (_) { /* toasts not ready */ } };
+  const undo = () => {
+    if (!hist.past.length) return; commit(); if (!hist.past.length) return;
+    const undone = hist.last.label;
+    hist.future.push(hist.last); restore(hist.past.pop());
+    announce(`Undid ${short(undone)}`);
+  };
+  const redo = () => {
+    commit(); if (!hist.future.length) return;
+    hist.past.push(hist.last); restore(hist.future.pop());
+    announce(`Redid ${short(hist.last.label)}`);
+  };
   // Oldest first: past, the current state, then the redo stack (its top is the next newer step).
   const timeline = () => hist.past.concat([hist.last], hist.future.slice().reverse());
   // Newest first, for the History list. index is the position in oldest-first order, which jumpTo takes.
@@ -168,6 +182,7 @@
     if (!(q >= 0 && q < T.length) || q === hist.past.length) return false;
     hist.past = T.slice(0, q); hist.future = T.slice(q + 1).reverse();
     restore(T[q]);
+    announce(`Back to ${short(T[q].label)}`);
     return true;
   }
   function updateUndo() {

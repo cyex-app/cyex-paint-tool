@@ -8,18 +8,25 @@
 .mp-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .mp-grid > .empty { grid-column: 1 / -1; }
 .mp-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 0; transition: border-color var(--fast), background-color var(--fast); }
-.mp-card:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .mp-card:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+}
 .mp-card.current { box-shadow: inset 3px 0 0 var(--accent); }
-.mp-thumb { display: block; width: 100%; aspect-ratio: 4 / 1; object-fit: contain; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 8px 8px; cursor: pointer; }
+.mp-thumb { display: block; width: 100%; aspect-ratio: 4 / 1; object-fit: contain; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 8px 8px; }
 .mp-namerow { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 28px; }
 .mp-name { flex: 1; min-width: 0; font-size: .85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mp-rename { flex: 1; min-width: 0; height: 28px; padding: 0 8px; }
 .mp-chip { flex: none; display: inline-flex; align-items: center; min-height: 18px; padding: 0 6px; border-radius: var(--radius); background: var(--neutral-chip); color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .mp-date { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: .74rem; color: var(--dim); }
-.mp-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.mp-tools { display: flex; align-items: center; gap: 2px; min-width: 0; }
-.mp-del.armed { width: auto; padding: 0 8px; font-size: .78rem; font-weight: 600; white-space: nowrap; color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
-.mp-del.armed:hover { color: var(--red); background: color-mix(in srgb, var(--red) 20%, transparent); }
+.mp-warn { color: var(--text); }
+.mp-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.mp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
+/* armed: the confirm button gets a full-width row of its own, so it never overflows the card */
+.mp-card:has(.mp-del.armed) .mp-tools { flex: 1 1 100%; }
+.mp-del.armed { flex: 1 1 auto; width: auto; min-width: 0; padding: 0 8px; font-size: .78rem; font-weight: 600; white-space: normal; color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+@media (hover: hover) and (pointer: fine) {
+  .mp-del.armed:hover { color: var(--red); background: color-mix(in srgb, var(--red) 20%, transparent); }
+}
 
 /* ---------- History popover ---------- */
 .hist-pop { max-height: min(360px, calc(100vh - 16px)); }
