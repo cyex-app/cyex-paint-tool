@@ -2224,7 +2224,7 @@ window.PL = window.PL || {};
       const d = Math.hypot(fx, fy - 1) ;
       const inside = d < 0.75;
       const f = inside ? clamp(1 - d / 0.75) : 0;
-      lutAt(p._stops, fract((inside ? f * 0.5 : 0.9) + (Math.floor(x) / p.cols) * 0.2 - t * p.speed * 0.25 + 1), o);
+      lutAt(p._stops, fract((inside ? f * 0.5 : 0.9) + (Math.floor(x) / p.cols) * 0.2 - t * p.speed + 1), o);
       const sh = 1 - p.shade * (1 - fy);
       o[0] *= sh; o[1] *= sh; o[2] *= sh;
       return o;
@@ -2510,6 +2510,9 @@ window.PL = window.PL || {};
   const G = (g, d) => Object.assign(d, { g });
   const when = (fn, d) => Object.assign(d, { show: fn });
   const multi = (p) => p.layout !== 'single';
+  // Split text into what people see as characters, so 👨‍👩‍👧, ❄️ and flags stay whole.
+  const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+  const graphemes = (s) => (segmenter ? [...segmenter.segment(s)].map((x) => x.segment) : [...s]).filter((g) => /\S/.test(g.replace(/[‍️]/g, '')));
 
   // ---------- shared parameter blocks ----------
   const colours = (o = {}) => [
@@ -2729,7 +2732,7 @@ window.PL = window.PL || {};
     ],
     draw(ctx, t, p, c) {
       const R = Math.min(400, (p.size * c.H) / 2);
-      const chars = [...(p.text || '')].filter((ch) => ch.trim());
+      const chars = graphemes(p.text || '');
       if (!chars.length) return;
       stampAll(ctx, t, p, c, (it) => {
         const str = p.cycle ? chars[it.i % chars.length] : p.text;
@@ -2816,7 +2819,7 @@ window.PL = window.PL || {};
       G('Settings', P.seed(3)),
     ],
     draw(ctx, t, p, c) {
-      const { W, H } = c, n = p.ridges;
+      const { W, H } = c, n = p.ridges, lut = PL.buildLut(paletteToStops(p.pal)); // once per frame, not per ridge
       for (let l = 0; l < n; l++) {
         const depth = n === 1 ? 1 : l / (n - 1);
         const base = (p.y + depth * (1 - p.y) * 0.55) * H, amp = p.height * H * (0.7 + 0.3 * (1 - depth));
@@ -2827,7 +2830,7 @@ window.PL = window.PL || {};
           const nn = p.style === 'soft' ? fbm(u * per, l * 3.1, per, 64, 3, p.seed + l) : ridged(u * per, l * 3.1, per, 64, 4, p.seed + l);
           pts.push([x, base - amp * nn]);
         }
-        const col = PL.lutAt(PL.buildLut(paletteToStops(p.pal)), depth, [0, 0, 0, 0]);
+        const col = PL.lutAt(lut, depth, [0, 0, 0, 0]);
         ctx.beginPath(); ctx.moveTo(0, H + 2);
         for (const [x, y] of pts) ctx.lineTo(x, y);
         ctx.lineTo(W, H + 2); ctx.closePath();
@@ -2860,7 +2863,9 @@ window.PL = window.PL || {};
         const r = rng(seed * 977), bs = [];
         let x = 0;
         while (x < W) { const w = Math.max(3, (p.width * (0.6 + r() * 0.9)) * W); bs.push([x, w, (0.35 + r() * 0.65) * p.height * H * hMul]); x += w; }
-        const total = x, off = (t * p.speed * total * (windows ? 1 : 0.5)) % total;
+        // the back row scrolls slower for depth, but always a whole number of its own widths per loop
+        const rate = windows ? p.speed : Math.sign(p.speed) * Math.max(1, Math.floor(Math.abs(p.speed) / 2));
+        const total = x, off = ((t * rate * total) % total + total) % total;
         for (const [bx, bw, bh] of bs) for (const dx of [-total, 0, total]) {
           const X = bx - off + dx; if (X > W || X + bw < 0) continue;
           ctx.fillStyle = col; ctx.fillRect(Math.floor(X), H - bh, Math.ceil(bw) - 1, bh);
@@ -3800,7 +3805,8 @@ window.PL = window.PL || {};
       bar.firstChild.style.background = 'linear-gradient(90deg,' + st.map((x) => `rgba(${x.rgb.join(',')},${x.a}) ${(x.at * 100).toFixed(2)}%`).join(',') + ')';
     };
     const shareEls = [];
-    const shares = () => { const tot = pal.colors.reduce((s, c) => s + c.w, 0) || 1; pal.colors.forEach((c, i) => { if (shareEls[i]) shareEls[i].textContent = Math.round((c.w / tot) * 100) + '%'; }); };
+    const zeroHint = h('p', { class: 'hint', hidden: true }, 'Every strength is 0, so nothing is drawn. Raise one, or use Even out.');
+    const shares = () => { const raw = pal.colors.reduce((s, c) => s + c.w, 0), tot = raw || 1; zeroHint.hidden = raw > 0; pal.colors.forEach((c, i) => { if (shareEls[i]) shareEls[i].textContent = Math.round((c.w / tot) * 100) + '%'; }); };
     function render() {
       list.textContent = ''; shareEls.length = 0;
       pal.colors.forEach((col, i) => {
@@ -3831,7 +3837,7 @@ window.PL = window.PL || {};
       btn('Even out', () => { pal.colors.forEach((c) => (c.w = 1)); render(); emit(true); }, 'ghost small', 'spread'),
       btn('Reverse', () => { pal.colors.reverse(); render(); emit(true); }, 'ghost small', 'swap'),
       paletteMenu((stops) => { const np = PL.stopsToPalette(stops, pal.loop); pal.colors = np.colors; render(); emit(true); }));
-    root.append(bar, list, tools, h('div', { class: 'split' }, blend, h('div', { class: 'ctl', style: { justifyContent: 'flex-end' } }, checkbox('Loop back to the first colour', !!pal.loop, (v) => { pal.loop = v; emit(true); }))));
+    root.append(bar, zeroHint, list, tools, h('div', { class: 'split' }, blend, h('div', { class: 'ctl', style: { justifyContent: 'flex-end' } }, checkbox('Loop back to the first colour', !!pal.loop, (v) => { pal.loop = v; emit(true); }))));
     render();
     return root;
   }
@@ -4456,7 +4462,7 @@ window.PL = window.PL || {};
       item.tweak = Object.assign({}, E.DEFAULT_TWEAK, item.tweak || {});
       body.push(group('Colour tweaks', tweakControls(item.tweak, 'Shift the colours of just this layer.')));
     }
-    const hasXY = def.params.some((pd) => pd.k === 'x') || def.params.some((pd) => pd.k === 'cx');
+    const hasXY = def.params.some((pd) => pd.k === 'x') || def.params.some((pd) => pd.k === 'cx' && /^Centre/.test(pd.l));
     if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it.'));
     const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); renderEditor(); changed(true); }, { cls: 'sm' });
     const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); state.sel = { kind, id: c.id }; renderEditor(); changed(true); }, { cls: 'sm' });
@@ -4543,9 +4549,10 @@ window.PL = window.PL || {};
   function dragTarget() {
     const s = findSel(); if (!s) return null;
     const def = s.kind === 'layer' ? PL.LAYERS[s.item.type] : PL.EFFECTS[s.item.type];
-    const keys = def.params.map((p) => p.k);
-    if (keys.includes('x') && keys.includes('y')) return { p: s.item.params, kx: 'x', ky: 'y', bx: 'toX', by: 'toY' };
-    if (keys.includes('cx') && keys.includes('cy')) return { p: s.item.params, kx: 'cx', ky: 'cy' };
+    // only real positions: x/y on elements, and cx/cy where they mean a centre (Checker and Cells use cx/cy for columns and rows)
+    const byKey = Object.fromEntries(def.params.map((p) => [p.k, p]));
+    if (byKey.x && byKey.y) return { p: s.item.params, kx: 'x', ky: 'y', bx: 'toX', by: 'toY' };
+    if (byKey.cx && byKey.cy && /^Centre/.test(byKey.cx.l)) return { p: s.item.params, kx: 'cx', ky: 'cy' };
     return null;
   }
   function enableCanvasDrag(cv, toUV) {

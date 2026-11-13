@@ -110,7 +110,7 @@
       const d = Math.hypot(fx, fy - 1) ;
       const inside = d < 0.75;
       const f = inside ? clamp(1 - d / 0.75) : 0;
-      lutAt(p._stops, fract((inside ? f * 0.5 : 0.9) + (Math.floor(x) / p.cols) * 0.2 - t * p.speed * 0.25 + 1), o);
+      lutAt(p._stops, fract((inside ? f * 0.5 : 0.9) + (Math.floor(x) / p.cols) * 0.2 - t * p.speed + 1), o);
       const sh = 1 - p.shade * (1 - fy);
       o[0] *= sh; o[1] *= sh; o[2] *= sh;
       return o;

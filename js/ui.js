@@ -522,7 +522,8 @@
       bar.firstChild.style.background = 'linear-gradient(90deg,' + st.map((x) => `rgba(${x.rgb.join(',')},${x.a}) ${(x.at * 100).toFixed(2)}%`).join(',') + ')';
     };
     const shareEls = [];
-    const shares = () => { const tot = pal.colors.reduce((s, c) => s + c.w, 0) || 1; pal.colors.forEach((c, i) => { if (shareEls[i]) shareEls[i].textContent = Math.round((c.w / tot) * 100) + '%'; }); };
+    const zeroHint = h('p', { class: 'hint', hidden: true }, 'Every strength is 0, so nothing is drawn. Raise one, or use Even out.');
+    const shares = () => { const raw = pal.colors.reduce((s, c) => s + c.w, 0), tot = raw || 1; zeroHint.hidden = raw > 0; pal.colors.forEach((c, i) => { if (shareEls[i]) shareEls[i].textContent = Math.round((c.w / tot) * 100) + '%'; }); };
     function render() {
       list.textContent = ''; shareEls.length = 0;
       pal.colors.forEach((col, i) => {
@@ -553,7 +554,7 @@
       btn('Even out', () => { pal.colors.forEach((c) => (c.w = 1)); render(); emit(true); }, 'ghost small', 'spread'),
       btn('Reverse', () => { pal.colors.reverse(); render(); emit(true); }, 'ghost small', 'swap'),
       paletteMenu((stops) => { const np = PL.stopsToPalette(stops, pal.loop); pal.colors = np.colors; render(); emit(true); }));
-    root.append(bar, list, tools, h('div', { class: 'split' }, blend, h('div', { class: 'ctl', style: { justifyContent: 'flex-end' } }, checkbox('Loop back to the first colour', !!pal.loop, (v) => { pal.loop = v; emit(true); }))));
+    root.append(bar, zeroHint, list, tools, h('div', { class: 'split' }, blend, h('div', { class: 'ctl', style: { justifyContent: 'flex-end' } }, checkbox('Loop back to the first colour', !!pal.loop, (v) => { pal.loop = v; emit(true); }))));
     render();
     return root;
   }

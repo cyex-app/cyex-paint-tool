@@ -8,6 +8,9 @@
   const G = (g, d) => Object.assign(d, { g });
   const when = (fn, d) => Object.assign(d, { show: fn });
   const multi = (p) => p.layout !== 'single';
+  // Split text into what people see as characters, so 👨‍👩‍👧, ❄️ and flags stay whole.
+  const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+  const graphemes = (s) => (segmenter ? [...segmenter.segment(s)].map((x) => x.segment) : [...s]).filter((g) => /\S/.test(g.replace(/[‍️]/g, '')));
 
   // ---------- shared parameter blocks ----------
   const colours = (o = {}) => [
@@ -227,7 +230,7 @@
     ],
     draw(ctx, t, p, c) {
       const R = Math.min(400, (p.size * c.H) / 2);
-      const chars = [...(p.text || '')].filter((ch) => ch.trim());
+      const chars = graphemes(p.text || '');
       if (!chars.length) return;
       stampAll(ctx, t, p, c, (it) => {
         const str = p.cycle ? chars[it.i % chars.length] : p.text;
@@ -314,7 +317,7 @@
       G('Settings', P.seed(3)),
     ],
     draw(ctx, t, p, c) {
-      const { W, H } = c, n = p.ridges;
+      const { W, H } = c, n = p.ridges, lut = PL.buildLut(paletteToStops(p.pal)); // once per frame, not per ridge
       for (let l = 0; l < n; l++) {
         const depth = n === 1 ? 1 : l / (n - 1);
         const base = (p.y + depth * (1 - p.y) * 0.55) * H, amp = p.height * H * (0.7 + 0.3 * (1 - depth));
@@ -325,7 +328,7 @@
           const nn = p.style === 'soft' ? fbm(u * per, l * 3.1, per, 64, 3, p.seed + l) : ridged(u * per, l * 3.1, per, 64, 4, p.seed + l);
           pts.push([x, base - amp * nn]);
         }
-        const col = PL.lutAt(PL.buildLut(paletteToStops(p.pal)), depth, [0, 0, 0, 0]);
+        const col = PL.lutAt(lut, depth, [0, 0, 0, 0]);
         ctx.beginPath(); ctx.moveTo(0, H + 2);
         for (const [x, y] of pts) ctx.lineTo(x, y);
         ctx.lineTo(W, H + 2); ctx.closePath();
@@ -358,7 +361,9 @@
         const r = rng(seed * 977), bs = [];
         let x = 0;
         while (x < W) { const w = Math.max(3, (p.width * (0.6 + r() * 0.9)) * W); bs.push([x, w, (0.35 + r() * 0.65) * p.height * H * hMul]); x += w; }
-        const total = x, off = (t * p.speed * total * (windows ? 1 : 0.5)) % total;
+        // the back row scrolls slower for depth, but always a whole number of its own widths per loop
+        const rate = windows ? p.speed : Math.sign(p.speed) * Math.max(1, Math.floor(Math.abs(p.speed) / 2));
+        const total = x, off = ((t * rate * total) % total + total) % total;
         for (const [bx, bw, bh] of bs) for (const dx of [-total, 0, total]) {
           const X = bx - off + dx; if (X > W || X + bw < 0) continue;
           ctx.fillStyle = col; ctx.fillRect(Math.floor(X), H - bh, Math.ceil(bw) - 1, bh);

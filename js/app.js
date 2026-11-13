@@ -596,7 +596,7 @@
       item.tweak = Object.assign({}, E.DEFAULT_TWEAK, item.tweak || {});
       body.push(group('Colour tweaks', tweakControls(item.tweak, 'Shift the colours of just this layer.')));
     }
-    const hasXY = def.params.some((pd) => pd.k === 'x') || def.params.some((pd) => pd.k === 'cx');
+    const hasXY = def.params.some((pd) => pd.k === 'x') || def.params.some((pd) => pd.k === 'cx' && /^Centre/.test(pd.l));
     if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it.'));
     const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); renderEditor(); changed(true); }, { cls: 'sm' });
     const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); state.sel = { kind, id: c.id }; renderEditor(); changed(true); }, { cls: 'sm' });
@@ -683,9 +683,10 @@
   function dragTarget() {
     const s = findSel(); if (!s) return null;
     const def = s.kind === 'layer' ? PL.LAYERS[s.item.type] : PL.EFFECTS[s.item.type];
-    const keys = def.params.map((p) => p.k);
-    if (keys.includes('x') && keys.includes('y')) return { p: s.item.params, kx: 'x', ky: 'y', bx: 'toX', by: 'toY' };
-    if (keys.includes('cx') && keys.includes('cy')) return { p: s.item.params, kx: 'cx', ky: 'cy' };
+    // only real positions: x/y on elements, and cx/cy where they mean a centre (Checker and Cells use cx/cy for columns and rows)
+    const byKey = Object.fromEntries(def.params.map((p) => [p.k, p]));
+    if (byKey.x && byKey.y) return { p: s.item.params, kx: 'x', ky: 'y', bx: 'toX', by: 'toY' };
+    if (byKey.cx && byKey.cy && /^Centre/.test(byKey.cx.l)) return { p: s.item.params, kx: 'cx', ky: 'cy' };
     return null;
   }
   function enableCanvasDrag(cv, toUV) {
