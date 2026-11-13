@@ -30,7 +30,8 @@
   paintTheme();
 
   document.addEventListener('keydown', (e) => {
-    const typing = e.target.closest && e.target.closest('input, textarea, [contenteditable]');
+    // only text entry counts as typing; sliders, checkboxes and colour pickers keep the shortcuts
+    const typing = e.target.closest && e.target.closest('input:not([type=range]):not([type=checkbox]):not([type=color]):not([type=file]), textarea, [contenteditable]');
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? A.redo() : A.undo(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); A.redo(); }
     else if (e.key === ' ' && !e.defaultPrevented && A.state.mode === 'anim' && !typing && !e.target.closest('button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); A.togglePlay(); }

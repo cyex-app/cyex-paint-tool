@@ -13,8 +13,11 @@
     const result = h('div', { class: 'stack', id: 'exportResult' });
     if (lastExport) showResult(result, lastExport);
     const exportBtns = [];
-    const cancelB = btn('Cancel', () => { if (exporting) exporting.cancel = true; }, 'ghost small', 'x');
-    cancelB.hidden = true;
+    // Cancel always sits in its own row (no layout shift); it's only enabled while frames render.
+    // Encoding can't be interrupted, so Cancel is disabled then. Progress is announced politely.
+    const cancelB = btn('Cancel export', () => { if (exporting) exporting.cancel = true; }, 'ghost small', 'x');
+    cancelB.disabled = true;
+    const status = h('span', { class: 'stat', role: 'status', 'aria-live': 'polite' });
 
     // Every export works on a snapshot of the paint taken when it starts, so editing meanwhile
     // can't mix frames. Only one export runs at a time, and it can be cancelled.
@@ -28,10 +31,16 @@
       exporting = { cancel: false };
       const job = exporting;
       const old = [...b.childNodes];
+      const hadFocus = document.activeElement === b || document.activeElement === document.body;
       exportBtns.forEach((x) => (x.disabled = true));
       b.replaceChildren(h('span', { class: 'spinner' }), h('span', null, 'Rendering…'));
-      cancelB.hidden = false;
-      const update = (txt) => { b.lastChild.textContent = txt; };
+      cancelB.disabled = false;
+      if (hadFocus) cancelB.focus(); // the button that had focus is now disabled; keep keyboard users on a live control
+      let lastAnnounce = 0;
+      const update = (txt, force) => {
+        b.lastChild.textContent = txt;
+        const now = performance.now(); if (force || now - lastAnnounce > 1500) { status.textContent = txt; lastAnnounce = now; }
+      };
       const frames = async () => {
         const out = [];
         for (let i = 0; i < cp.frames; i++) {
@@ -41,23 +50,26 @@
           await new Promise((r) => setTimeout(r));
         }
         if (job.cancel) throw new Error('cancelled');
-        update('Encoding…'); await new Promise((r) => setTimeout(r, 20));
+        cancelB.disabled = true;
+        update('Encoding…', true); await new Promise((r) => setTimeout(r, 20));
         return out;
       };
-      try { await work({ doc, cp, frames }); }
-      catch (e) { if (e.message === 'cancelled') toast('Export cancelled.'); else { console.error(e); toast('Couldn’t finish the export. Try a smaller size or a shorter loop.', 'error'); } }
+      try { await work({ doc, cp, frames }); status.textContent = 'Export finished.'; }
+      catch (e) { status.textContent = ''; if (e.message === 'cancelled') toast('Export cancelled.'); else { console.error(e); toast('Couldn’t finish the export. Try a smaller size or a shorter loop.', 'error'); } }
       finally {
+        const focusLost = document.activeElement === cancelB || document.activeElement === document.body;
         exporting = null;
         exportBtns.forEach((x) => (x.disabled = false));
         b.replaceChildren(...old);
-        cancelB.hidden = true;
+        cancelB.disabled = true;
+        if (focusLost && b.isConnected) b.focus();
       }
     }
     function confirmHeavy(cp) {
       return new Promise((resolve) => {
         let answered = false;
         const finish = (v) => { if (answered) return; answered = true; resolve(v); dlg.close(); };
-        const dlg = dialog('This is a big export', [h('p', null, `It renders ${PL.fmtInt(cp.frames)} frames at ${cp.W}×${cp.H}, which can take a minute and use a lot of memory. A smaller size, fewer frames per second or a shorter loop make it faster.`)], {
+        const dlg = dialog('Export a big file?', [h('p', null, `It renders ${PL.fmtInt(cp.frames)} frames at ${cp.W}×${cp.H}, which can take a minute and use a lot of memory. A smaller size, fewer frames per second or a shorter loop make it faster.`)], {
           footer: [btn('Cancel', () => finish(false), 'secondary'), btn('Export anyway', () => finish(true), 'primary')],
           onClose: () => { if (!answered) { answered = true; resolve(false); } },
         });
@@ -133,7 +145,7 @@
     const openP = h('label', { class: 'btn secondary small' }, icon('folder'), 'Open project', file);
 
     return panel('Export', [
-      h('div', { class: 'export-grid' }, gifB, apngB, pngB, sheetB, nameB), h('div', null, cancelB),
+      h('div', { class: 'export-grid' }, gifB, apngB, pngB, sheetB, nameB), h('div', { class: 'row' }, cancelB, status),
       result, gifOpts, nsz,
       h('div', { class: 'sub' }, h('span', { class: 'label' }, '7TV paint'),
         labeled('Where the image will be hosted', url),

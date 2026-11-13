@@ -71,9 +71,14 @@
   let collapsedPanels = new Set();
   try { collapsedPanels = new Set(JSON.parse(localStorage.getItem(PANELS_KEY) || '[]')); } catch (e) {}
   const savePanels = () => { try { localStorage.setItem(PANELS_KEY, JSON.stringify([...collapsedPanels])); } catch (e) {} };
+  // Keys are per editor mode ("anim:Paint" vs "static:Paint"), so the two editors don't share state.
+  // extra.open forces the panel open (and forgets that it was collapsed).
+  let panelSeq = 0;
   function panel(title, body, tools = [], extra = {}) {
-    const key = extra.key || title;
-    const bodyEl = h('div', { class: 'body' }, body);
+    const mode = PL.App && PL.App.state ? PL.App.state.mode + ':' : '';
+    const key = extra.key || mode + title;
+    const bodyId = 'pb' + ++panelSeq;
+    const bodyEl = h('div', { class: 'body', id: bodyId }, body);
     const sec = h('section', { class: 'panel', id: extra.id || null });
     const setOpen = (open) => {
       bodyEl.hidden = !open;
@@ -82,9 +87,13 @@
       if (open) collapsedPanels.delete(key); else collapsedPanels.add(key);
       savePanels();
     };
-    const tog = h('button', { type: 'button', class: 'ptoggle', 'aria-expanded': 'true', onclick: () => setOpen(bodyEl.hidden) }, icon('chevron'), h('span', null, title));
-    if (collapsedPanels.has(key)) { bodyEl.hidden = true; sec.classList.add('collapsed'); tog.setAttribute('aria-expanded', 'false'); }
-    sec.append(h('header', null, h('h2', null, tog), extra.count != null ? h('span', { class: 'count' }, extra.count) : null, ...tools), bodyEl);
+    const tog = h('button', { type: 'button', class: 'ptoggle', 'aria-expanded': 'true', 'aria-controls': bodyId, 'data-tip': title, onclick: () => setOpen(bodyEl.hidden) }, icon('chevron'), h('span', null, title));
+    if (extra.open) { if (collapsedPanels.delete(key)) savePanels(); }
+    else if (collapsedPanels.has(key)) { bodyEl.hidden = true; sec.classList.add('collapsed'); tog.setAttribute('aria-expanded', 'false'); }
+    const countEl = h('span', { class: 'count', hidden: extra.count == null || null }, extra.count ?? '');
+    sec.append(h('header', null, h('h2', null, tog), countEl, ...tools), bodyEl);
+    // counts that change with in-place edits (stops, shadows) update through this
+    sec.setCount = (n) => { countEl.textContent = n ? String(n) : ''; countEl.hidden = !n; };
     return sec;
   }
 
@@ -138,7 +147,7 @@
       if (e.key === 'End') { e.preventDefault(); pick(options[options.length - 1][0]); }
     });
     render();
-    el.setValue = (v) => { value = v; render(); };
+    el.setValue = (v) => { if (v === value) return; value = v; render(); }; // no rebuild when unchanged, so focus stays
     return el;
   }
 
@@ -150,7 +159,7 @@
 
   // ---- popover + select ----
   let openPop = null, popSeq = 0;
-  function closePop() { if (openPop) { openPop.el.remove(); document.removeEventListener('pointerdown', openPop.out, true); openPop.anchor?.setAttribute('aria-expanded', 'false'); const a = openPop.anchor; openPop = null; return a; } }
+  function closePop() { if (openPop) { openPop.el.remove(); document.removeEventListener('pointerdown', openPop.out, true); openPop.anchor?.setAttribute('aria-expanded', 'false'); openPop.anchor?.removeAttribute('aria-controls'); const a = openPop.anchor; openPop = null; return a; } }
   function popover(anchor, content, { onKey, label } = {}) {
     closePop();
     const id = 'pop' + ++popSeq;
@@ -206,7 +215,7 @@
     const open = () => {
       let kb = Math.max(0, options.findIndex(([v]) => v === value));
       const items = options.map(([v, l], i) => h('button', { type: 'button', class: 'option', role: 'option', 'aria-selected': String(v === value), tabindex: '-1', onclick: () => choose(i) }, l));
-      const choose = (i) => { value = options[i][0]; txt.textContent = cur(); trigger.setAttribute('aria-label', label ? label + ': ' + cur() : ''); closePop(); trigger.focus(); onChange(value); };
+      const choose = (i) => { value = options[i][0]; txt.textContent = cur(); if (label) trigger.setAttribute('aria-label', label + ': ' + cur()); else trigger.removeAttribute('aria-label'); closePop(); trigger.focus(); onChange(value); };
       let keys = null;
       const pop = popover(trigger, items, { label, onKey: (e) => keys.onKey(e) });
       keys = listboxKeys(items, () => kb, (k) => { kb = k; }, choose, trigger, pop);
@@ -240,7 +249,7 @@
     let aIn = null;
     const parts = [h('label', { class: 'swatch' }, fill, picker), hexIn];
     if (alpha != null && !opts.noAlpha) {
-      aIn = slider('Opacity', alpha, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { alpha = v; emit(false); }, onCommit: () => emit(true) });
+      aIn = slider((opts.label || 'Colour') + ' opacity', alpha, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { alpha = v; emit(false); }, onCommit: () => emit(true) });
       aIn.classList.add('grow');
       parts.push(aIn);
     }
@@ -281,8 +290,15 @@
           me.addEventListener('pointermove', move); me.addEventListener('pointerup', up); me.addEventListener('pointercancel', up);
         });
         hd.addEventListener('keydown', (e) => {
-          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); stops[i].at = Math.round(PL.clamp(stops[i].at + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 0.1 : 0.01)) * 1000) / 1000; sel = i; renderHandles(); renderList(); emit(true); bar.querySelectorAll('.handle')[i].focus(); }
-          if ((e.key === 'Delete' || e.key === 'Backspace') && stops.length > 1) { e.preventDefault(); remove(i); }
+          // arrows move live; one undo step and a re-sort happen once the key has been let go for a moment
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault(); stops[i].at = Math.round(PL.clamp(stops[i].at + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 0.1 : 0.01)) * 1000) / 1000; sel = i;
+            hd.style.left = stops[i].at * 100 + '%'; hd.setAttribute('aria-label', `Stop ${i + 1} at ${Math.round(stops[i].at * 100)}%`);
+            const row = list.children[i]; row && row.posCtl && row.posCtl(stops[i].at); emit(false);
+            clearTimeout(keyTimer);
+            keyTimer = setTimeout(() => { const cur = stops[i]; stops.sort((a, b) => a.at - b.at); sel = stops.indexOf(cur); renderAll(); emit(true); bar.querySelectorAll('.handle')[sel]?.focus(); }, 500);
+          }
+          if ((e.key === 'Delete' || e.key === 'Backspace') && stops.length > 1) { e.preventDefault(); remove(i, 'handle'); }
         });
         bar.append(hd);
       });
@@ -297,7 +313,13 @@
       sel = stops.findIndex((s) => s.at === at);
       renderAll(); emit(true);
     });
-    function remove(i) { stops.splice(i, 1); sel = Math.min(sel, stops.length - 1); renderAll(); emit(true); }
+    // removing keeps keyboard focus nearby: the next handle or remove button, else Add stop
+    function remove(i, from) {
+      stops.splice(i, 1); sel = Math.min(sel, stops.length - 1); renderAll(); emit(true);
+      const j = Math.min(i, stops.length - 1);
+      const next = from === 'handle' ? bar.querySelectorAll('.handle')[j] : list.children[j]?.querySelector('[aria-label^="Remove stop"]:not([disabled])');
+      (next || addStopB).focus();
+    }
     function renderList() {
       list.textContent = '';
       stops.forEach((s, i) => {
@@ -319,9 +341,14 @@
       });
     }
     function markSel() { [...list.children].forEach((r, i) => r.classList.toggle('sel', i === sel)); bar.querySelectorAll('.handle').forEach((x, i) => x.classList.toggle('sel', i === sel)); }
-    function renderAll() { fillEl.style.background = cssOf(); renderHandles(); renderList(); }
+    function renderAll() {
+      fillEl.style.background = cssOf(); renderHandles(); renderList();
+      if (addStopB) { addStopB.disabled = stops.length >= MAX_STOPS; addStopB.dataset.tip = addStopB.disabled ? `Up to ${MAX_STOPS} stops` : ''; if (!addStopB.disabled) delete addStopB.dataset.tip; }
+      if (opts.onCount) opts.onCount(stops.length);
+    }
+    let keyTimer = 0, addStopB = null;
     const tools = h('div', { class: 'row' },
-      btn('Add stop', () => { if (stops.length >= MAX_STOPS) { toast(`A gradient can have up to ${MAX_STOPS} stops.`); return; } const a = stops[sel] || stops[0]; const b = stops[sel + 1]; const at = b ? (a.at + b.at) / 2 : a ? Math.min(1, a.at + 0.1) : 0; const c = sampleAt(at); stops.push({ at: Math.round(at * 1000) / 1000, color: c.color, a: c.a }); stops.sort((x, y) => x.at - y.at); sel = stops.findIndex((s) => s.at === Math.round(at * 1000) / 1000); renderAll(); emit(true); }, 'secondary small', 'plus'),
+      addStopB = btn('Add stop', () => { if (stops.length >= MAX_STOPS) { toast(`A gradient can have up to ${MAX_STOPS} stops.`); return; } const a = stops[sel] || stops[0]; const b = stops[sel + 1]; const at = b ? (a.at + b.at) / 2 : a ? Math.min(1, a.at + 0.1) : 0; const c = sampleAt(at); stops.push({ at: Math.round(at * 1000) / 1000, color: c.color, a: c.a }); stops.sort((x, y) => x.at - y.at); sel = stops.findIndex((s) => s.at === Math.round(at * 1000) / 1000); renderAll(); emit(true); }, 'secondary small', 'plus'),
       btn('Reverse', () => { stops.forEach((s) => (s.at = Math.round((1 - s.at) * 1000) / 1000)); stops.reverse(); renderAll(); emit(true); }, 'ghost small', 'swap'),
       btn('Spread evenly', () => { stops.sort((a, b) => a.at - b.at); stops.forEach((s, i) => (s.at = stops.length > 1 ? Math.round((i / (stops.length - 1)) * 1000) / 1000 : 0)); renderAll(); emit(true); }, 'ghost small', 'spread'),
       opts.palettes ? paletteMenu((pal) => { stops.splice(0, stops.length, ...PL.clone(pal)); sel = 0; renderAll(); emit(true); }) : null);
@@ -345,9 +372,12 @@
   }
 
   // ---- dialog ----
+  const openDialogs = new Map(); // title -> handle: a second open of the same dialog focuses the first
   function dialog(title, body, { footer, wide, onClose } = {}) {
+    if (openDialogs.has(title)) { const o = openDialogs.get(title); o.focusFirst(); return o; }
     const prev = document.activeElement;
-    const close = () => { back.remove(); document.removeEventListener('keydown', key, true); onClose && onClose(); prev && prev.focus && prev.focus(); };
+    let closed = false;
+    const close = () => { if (closed) return; closed = true; openDialogs.delete(title); back.remove(); document.removeEventListener('keydown', key, true); onClose && onClose(); prev && prev.isConnected && prev.focus && prev.focus(); };
     const box = h('div', { class: 'dialog' + (wide ? ' wide' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
       h('header', null, h('h2', null, title), iconBtn('x', 'Close', () => close())),
       h('div', { class: 'dbody' }, body),
@@ -374,8 +404,12 @@
     };
     document.addEventListener('keydown', key, true);
     document.body.append(back);
-    setTimeout(() => (box.querySelector('[autofocus]') || box.querySelector('.dbody input, .dbody textarea, .dbody button') || box).focus(), 0);
-    return { close, box };
+    // first field, else the first footer button (Cancel comes first, so Enter never starts something risky)
+    const focusFirst = () => (box.querySelector('[autofocus]') || box.querySelector('.dbody input, .dbody textarea, .dbody button') || box.querySelector('footer button') || box.querySelector('header button')).focus();
+    setTimeout(focusFirst, 0);
+    const handle = { close, box, focusFirst };
+    openDialogs.set(title, handle);
+    return handle;
   }
 
   // ---- toasts ----
@@ -383,7 +417,8 @@
   // A repeat of the same message bumps a ×N count instead of stacking; hover or focus holds a toast.
   function toast(msg, kind = 'info') {
     const host = document.getElementById(kind === 'error' ? 'errors' : 'toasts');
-    const life = kind === 'error' ? 9000 : 3500;
+    // long messages stay up long enough to read (about 60 ms a character)
+    const life = Math.max(kind === 'error' ? 9000 : 3500, String(msg).length * 60);
     const same = [...host.children].find((x) => x.dataset.msg === msg);
     if (same) { same.bump(); return; }
     const text = h('span', null, msg), count = h('b', { class: 'tcount' });
@@ -460,7 +495,10 @@
       const startScroll = scrollPos();
       let lastY = e.clientY, raf = 0;
       const edge = () => {
-        const top = scroller ? scroller.getBoundingClientRect().top : 0, bottom = scroller ? scroller.getBoundingClientRect().bottom : innerHeight;
+        if (!grip.isConnected) { end(true); return; } // the list was redrawn mid-drag: stop cleanly
+        // the page case starts below the sticky header, so the zone isn't hidden under it
+        const bar = document.querySelector('.topbar'), barH = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0;
+        const top = scroller ? scroller.getBoundingClientRect().top : barH, bottom = scroller ? scroller.getBoundingClientRect().bottom : innerHeight;
         const zone = 48, v = lastY < top + zone ? -(top + zone - lastY) : lastY > bottom - zone ? lastY - (bottom - zone) : 0;
         if (v) { const d = Math.sign(v) * Math.min(18, Math.ceil(Math.abs(v) / 3)); if (scroller) scroller.scrollTop += d; else scrollBy(0, d); move({ clientY: lastY }); }
         raf = requestAnimationFrame(edge);
@@ -485,14 +523,22 @@
           it.style.transform = s ? `translateY(${s}px)` : '';
         });
       };
-      const end = () => {
-        grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
+      // end(true) cancels: Escape, a lost pointer, the window losing focus, or the list being redrawn
+      let ended = false;
+      const end = (cancel) => {
+        if (ended) return; ended = true;
+        grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', onUp); grip.removeEventListener('pointercancel', onCancel);
+        grip.removeEventListener('lostpointercapture', onCancel); removeEventListener('keydown', onKey, true); removeEventListener('blur', onCancel);
         cancelAnimationFrame(raf);
         items.forEach((it) => { it.style.transform = ''; });
         el.classList.remove('dragging'); container.classList.remove('sorting');
-        if (to !== from) onMove(from, to);
+        if (cancel !== true && to !== from && grip.isConnected) onMove(from, to);
       };
-      grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+      const onUp = () => end(false), onCancel = () => end(true);
+      const onKey = (k) => { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); end(true); } };
+      grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', onUp); grip.addEventListener('pointercancel', onCancel);
+      grip.addEventListener('lostpointercapture', () => { if (!ended) setTimeout(() => { if (!ended) end(false); }); });
+      addEventListener('keydown', onKey, true); addEventListener('blur', onCancel);
     });
     container.addEventListener('keydown', (e) => {
       const grip = e.target.closest && e.target.closest('.grip');
@@ -511,7 +557,7 @@
 
   // ---- collapsible group ----
   const GROUPS_KEY = 'cyexPaints.openGroups';
-  let openGroups = new Set(['Colours', 'Settings', 'Shape', 'Layer']);
+  let openGroups = new Set(['Colours', 'Settings', 'Shape', 'Layer', 'Size and timing']);
   try { const g = JSON.parse(localStorage.getItem(GROUPS_KEY) || 'null'); if (Array.isArray(g)) openGroups = new Set(g); } catch (e) {}
   const saveGroups = () => { try { localStorage.setItem(GROUPS_KEY, JSON.stringify([...openGroups])); } catch (e) {} };
   function group(title, content, { open, count } = {}) {
@@ -529,6 +575,7 @@
 
   // ---- weighted palette editor ----
   // pal: { colors: [{ c, a, w }], blend, loop }. Strength = weight; the share column shows the result.
+  const MAX_COLOURS = 24; // the engine keeps up to 24 palette colours
   function paletteEditor(pal, onChange, opts = {}) {
     const root = h('div', { class: 'paled' });
     const bar = h('div', { class: 'pbar' }, h('i'));
@@ -540,7 +587,15 @@
     };
     const shareEls = [];
     const zeroHint = h('p', { class: 'hint', hidden: true }, 'Every strength is 0, so nothing is drawn. Raise one, or use Even out.');
-    const shares = () => { const raw = pal.colors.reduce((s, c) => s + c.w, 0), tot = raw || 1; zeroHint.hidden = raw > 0; pal.colors.forEach((c, i) => { if (shareEls[i]) shareEls[i].textContent = Math.round((c.w / tot) * 100) + '%'; }); };
+    // largest-remainder rounding, so the shown shares always add up to 100%
+    const shares = () => {
+      const raw = pal.colors.reduce((s, c) => s + c.w, 0), tot = raw || 1; zeroHint.hidden = raw > 0;
+      const exact = pal.colors.map((c) => (c.w / tot) * 100), base = exact.map(Math.floor);
+      let left = raw > 0 ? 100 - base.reduce((s, x) => s + x, 0) : 0;
+      exact.map((x, i) => [x - base[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { base[i]++; left--; } });
+      pal.colors.forEach((c, i) => { if (shareEls[i]) shareEls[i].textContent = base[i] + '%'; });
+      if (addColB) addColB.disabled = pal.colors.length >= MAX_COLOURS;
+    };
     function render() {
       list.textContent = ''; shareEls.length = 0;
       pal.colors.forEach((col, i) => {
@@ -558,16 +613,17 @@
           colorField(col.c, null, (hx, a, c) => { col.c = hx; emit(c); }, { label: `Colour ${i + 1}` }),
           share,
           h('span', { class: 'numwrap' }, al, h('span', { class: 'unit' }, '%')),
-          iconBtn('trash', `Remove colour ${i + 1}`, () => { pal.colors.splice(i, 1); render(); emit(true); }, { cls: 'sm danger', attrs: { disabled: pal.colors.length <= 1 } }),
+          iconBtn('trash', `Remove colour ${i + 1}`, () => { pal.colors.splice(i, 1); render(); emit(true); const j = Math.min(i, pal.colors.length - 1); (list.children[j]?.querySelector('[aria-label^="Remove colour"]:not([disabled])') || addColB).focus(); }, { cls: 'sm danger', attrs: { disabled: pal.colors.length <= 1 } }),
           h('div', { class: 'pstr' }, h('span', { class: 'label' }, 'Strength'), str));
         list.append(row);
       });
       shares(); paintBar();
     }
     sortable(list, (from, to) => { const [c] = pal.colors.splice(from, 1); pal.colors.splice(to, 0, c); render(); emit(true); });
+    let addColB = null;
     const blend = slider('Smoothness', pal.blend ?? 1, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, hint: '0% gives hard bands, 100% smooth blends', onInput: (v) => { pal.blend = v; emit(false); }, onCommit: () => emit(true) });
     const tools = h('div', { class: 'row' },
-      btn('Add colour', () => { const last = pal.colors[pal.colors.length - 1]; pal.colors.push({ c: last ? last.c : '#ffffff', a: 1, w: 1 }); render(); emit(true); }, 'secondary small', 'plus'),
+      addColB = btn('Add colour', () => { if (pal.colors.length >= MAX_COLOURS) return; const last = pal.colors[pal.colors.length - 1]; pal.colors.push({ c: last ? last.c : '#ffffff', a: 1, w: 1 }); render(); emit(true); }, 'secondary small', 'plus'),
       btn('Even out', () => { pal.colors.forEach((c) => (c.w = 1)); render(); emit(true); }, 'ghost small', 'spread'),
       btn('Reverse', () => { pal.colors.reverse(); render(); emit(true); }, 'ghost small', 'swap'),
       paletteMenu((stops) => { const np = PL.stopsToPalette(stops, pal.loop); pal.colors = np.colors; render(); emit(true); }));

@@ -15,23 +15,25 @@
 
   function shadowsPanel(list) {
     const body = h('div', { class: 'stops' });
-    const render = () => {
+    let render = () => {
       body.textContent = '';
       if (!list.length) body.append(h('p', { class: 'hint' }, 'No shadows. 7TV draws each one as a CSS drop-shadow, in order.'));
       list.forEach((s, i) => {
         const { hex, alpha } = PL.decToHexAlpha(s.color);
         body.append(h('div', { class: 'shadow-row sortable-item' }, grip(`Move shadow ${i + 1}`),
-          slider('X', s.x_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.x_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
-          slider('Y', s.y_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.y_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
-          slider('Blur', s.radius, { min: 0, max: 20, step: 0.5, unit: 'px', onInput: (v) => { s.radius = v; A.changed(false); }, onCommit: () => A.commit() }),
-          iconBtn('trash', `Remove shadow ${i + 1}`, () => { list.splice(i, 1); render(); A.changed(true); }, { cls: 'sm danger' }),
+          slider(`Shadow ${i + 1} X`, s.x_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.x_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
+          slider(`Shadow ${i + 1} Y`, s.y_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.y_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
+          slider(`Shadow ${i + 1} blur`, s.radius, { min: 0, max: 20, step: 0.5, unit: 'px', onInput: (v) => { s.radius = v; A.changed(false); }, onCommit: () => A.commit() }),
+          iconBtn('trash', `Remove shadow ${i + 1}`, () => { list.splice(i, 1); render(); A.changed(true); const j = Math.min(i, list.length - 1); (body.querySelectorAll('[aria-label^="Remove shadow"]')[j] || add).focus(); }, { cls: 'sm danger' }),
           colorField(hex, alpha, (hx, a, c) => { s.color = PL.hexAlphaToDec(hx, a); A.changed(c); }, { label: `Shadow ${i + 1}` })));
       });
     };
     render();
     sortable(body, (from, to) => { const [x] = list.splice(from, 1); list.splice(to, 0, x); render(); A.changed(true); });
     const add = btn('Add shadow', () => { list.push({ x_offset: 0, y_offset: 0, radius: 2, color: PL.hexAlphaToDec('#000000', 0.8) }); render(); A.changed(true); }, 'secondary small', 'plus');
-    return panel('Shadows', [body, h('div', { class: 'row' }, add)], [], { count: list.length || null });
+    const sec = panel('Shadows', [body, h('div', { class: 'row' }, add)], [], { count: list.length || null });
+    const baseRender = render; render = () => { baseRender(); sec.setCount(list.length); }; // keep the header count in step
+    return sec;
   }
 
   function tweakControls(tw, hint) {
@@ -67,11 +69,13 @@
     root.append(panel('Paint', paintBody));
     if (!isUrl) {
       const es = Paint.editorStops(p);
+      let stopsPanel = null; // assigned below; the editor reports counts before the panel exists
       const ed = stopsEditor(es, (stops, c) => {
         p.stops = stops.map((s) => ({ at: Math.round(s.at * 10000) / 10000, color: PL.hexAlphaToDec(s.color, s.a) }));
         A.changed(c);
-      }, { palettes: true });
-      root.append(panel('Colour stops', [ed], [], { count: p.stops.length }));
+      }, { palettes: true, onCount: (n) => stopsPanel && stopsPanel.setCount(n) });
+      stopsPanel = panel('Colour stops', [ed], [], { count: p.stops.length });
+      root.append(stopsPanel);
     }
     root.append(shadowsPanel(p.shadows));
   }
@@ -134,7 +138,7 @@
       const ok = await copyText(A.codePre.textContent);
       copyB.replaceChildren(icon(ok ? 'check' : 'copy')); copyB.style.color = ok ? 'var(--green)' : '';
       setTimeout(() => { copyB.replaceChildren(icon('copy')); copyB.style.color = ''; }, 1600);
-      if (!ok) toast('Copy failed. Select the code and copy it by hand.', 'error');
+      if (!ok) toast('Couldn’t copy. Select the code and copy it by hand.', 'error');
     });
     const wrap = h('div', { class: 'code-wrap' }, h('div', { class: 'code-head' }, tabSeg, h('span', { class: 'grow' }), copyB), A.codePre);
     wrap.getText = getText;
@@ -156,11 +160,11 @@
     const pngTex = btn('Paint PNG', async () => {
       const [w, hh] = readSize();
       try { const cv = await staticTexture(p, w, hh); cv.toBlob((b) => download(b, slug(p.name) + '-paint.png')); }
-      catch (e) { toast(e.message, 'error'); }
+      catch (e) { toast(e.friendly ? e.message : 'Couldn’t make the PNG. Try a smaller size.', 'error'); }
     }, 'secondary', 'image');
     const pngName = btn('Name PNG', async () => {
       try { const cv = await staticNameCanvas(A.state.nameSize); cv.toBlob((b) => download(b, slug(p.name) + '-name.png')); }
-      catch (e) { toast(e.message, 'error'); }
+      catch (e) { toast(e.friendly ? e.message : 'Couldn’t make the PNG. Try a smaller size.', 'error'); }
     }, 'secondary', 'image');
     const toAnim = btn('Animate this paint', () => { A.state.anim = staticToAnim(A.state.static); A.state.mode = 'anim'; A.state.sel = A.state.anim.layers[0] ? { kind: 'layer', id: A.state.anim.layers[0].id } : null; A.renderAll(); A.commit(); toast('Copied into the animated editor as a layer.', 'success'); }, 'primary', 'wand');
     return panel('Export', [
@@ -175,7 +179,7 @@
   function loadImage(src) {
     return new Promise((res, rej) => {
       const im = new Image(); im.crossOrigin = 'anonymous';
-      im.onload = () => res(im); im.onerror = () => rej(new Error('Could not load that image. The host may block cross-origin use.'));
+      im.onload = () => res(im); im.onerror = () => rej(Object.assign(new Error('Couldn’t load that image. The host may block other sites from using it.'), { friendly: true }));
       im.src = src;
     });
   }
@@ -183,12 +187,12 @@
     const cv = h('canvas', { width: w, height: hh });
     const ctx = cv.getContext('2d');
     if (p.function === 'URL') {
-      if (!p.image_url) throw new Error('Add an image URL first.');
+      if (!p.image_url) throw Object.assign(new Error('Add an image link first.'), { friendly: true });
       const safe = Paint.safeUrl(p.image_url);
-      if (!safe) throw new Error('Add an http or https image link first.');
+      if (!safe) throw Object.assign(new Error('Add an http or https image link first.'), { friendly: true });
       const im = await loadImage(safe);
       ctx.drawImage(im, 0, 0, w, hh);
-      try { ctx.getImageData(0, 0, 1, 1); } catch (e) { throw new Error('That host blocks reading the image, so it can only be previewed, not exported.'); }
+      try { ctx.getImageData(0, 0, 1, 1); } catch (e) { throw Object.assign(new Error('That host blocks reading the image, so it can be previewed but not exported.'), { friendly: true }); }
     } else ctx.putImageData(Paint.rasterize(p, w, hh), 0, 0);
     return cv;
   }

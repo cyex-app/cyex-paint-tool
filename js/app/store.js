@@ -61,7 +61,9 @@
     }
     const res = Paint.normalize(obj, true);
     A.state.static = res.paint; A.state.mode = 'static';
-    return res.warnings.length ? 'Paint imported. ' + res.warnings.join(' ') : 'Paint imported.';
+    // corrections get their own neutral toast (it stays up longer for longer text), not the success one
+    if (res.warnings.length) setTimeout(() => PL.UI.toast('Some values were corrected: ' + res.warnings.join(' ')));
+    return 'Paint imported.';
   }
 
   let saveTimer = 0;
@@ -98,7 +100,13 @@
   }
   const undo = () => { if (!hist.past.length) return; commit(); if (!hist.past.length) return; hist.future.push(hist.last); restore(hist.past.pop()); };
   const redo = () => { commit(); if (!hist.future.length) return; hist.past.push(hist.last); restore(hist.future.pop()); };
-  function updateUndo() { $('#undoBtn').disabled = !hist.past.length; $('#redoBtn').disabled = !hist.future.length; }
+  function updateUndo() {
+    const u = $('#undoBtn'), r = $('#redoBtn'), had = document.activeElement;
+    u.disabled = !hist.past.length; r.disabled = !hist.future.length;
+    // a button that just disabled itself would drop focus to the page: hand it to its partner
+    if (had === u && u.disabled) (r.disabled ? $('#presetsBtn') : r).focus();
+    else if (had === r && r.disabled) (u.disabled ? $('#presetsBtn') : u).focus();
+  }
 
   // Every edit calls changed(); commit=true for discrete actions, sliders commit on release.
   function changed(doCommit) {

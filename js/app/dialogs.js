@@ -30,7 +30,7 @@
         if (!q && libCat[kind] !== 'All' && libCat[kind] !== cat) continue;
         const items = Object.values(defs).filter((d) => d.cat === cat && (!q || (d.name + ' ' + d.desc + ' ' + cat).toLowerCase().includes(q)));
         if (!items.length) continue;
-        list.append(h('div', { class: 'libcat' }, h('span', { class: 'label' }, cat), h('div', { class: 'cards' }, items.map((def) => {
+        list.append(h('div', { class: 'libcat' }, h('h3', { class: 'label' }, cat), h('div', { class: 'cards' }, items.map((def) => {
           const cv = h('canvas', { width: 160, height: 40, 'aria-hidden': 'true' });
           thumbs.push([cv, def]);
           return h('button', { type: 'button', class: 'card', onclick: () => add(def) }, cv, h('b', null, def.name), h('span', null, def.desc));

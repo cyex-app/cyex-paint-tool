@@ -84,7 +84,7 @@
         const src = await A.fileToDataUrl(f, 512); await A.cacheImage(src);
         const l = E.newLayer('sprite', { name: f.name.replace(/\.[^.]+$/, '').slice(0, 30), params: { src } });
         A.state.anim.layers.push(l); A.state.sel = { kind: 'layer', id: l.id };
-      } catch (err) { toast('Could not read ' + f.name + '.', 'error'); }
+      } catch (err) { toast('Couldn’t read ' + (f.name.length > 40 ? f.name.slice(0, 37) + '…' : f.name) + '. Try a PNG, JPG or WebP file.', 'error'); }
     }
     A.renderAll(); A.commit(); toast(imgs.length > 1 ? `Added ${imgs.length} pictures.` : 'Added the picture as an element. Drag it on the paint image to place it.', 'success');
   });
@@ -120,6 +120,7 @@
     }
     if (rt.frame >= n) rt.frame = 0;
     if (!rt.redraw && rt.shown === rt.frame) return;
+    if (A.pv && A.pv.el && A.pv.el.querySelector('.body')?.hidden) { rt.redraw = true; return; } // collapsed preview: nothing to draw
     const img = getFrame(rt.frame);
     rt.texCv.getContext('2d').putImageData(img, 0, 0);
     const text = A.state.preview.text, color = A.state.preview.color;

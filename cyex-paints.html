@@ -372,8 +372,6 @@ input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 @container (max-width: 400px) { .stoprow { grid-template-columns: 20px auto 1fr auto; } .stoprow .alpha { grid-column: 3; } }
 
 /* shadows */
-.shadow-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--border); }
-.shadow-row .color { grid-column: 1 / 4; }
 
 /* ---------- layers ---------- */
 .list { display: flex; flex-direction: column; border: 1px solid var(--border); }
@@ -395,9 +393,8 @@ input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 .stagebox.light { background: var(--chat-light); color: var(--chat-light-text); }
 .stagebox.checker { background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 16px 16px; }
 .pname { font-family: var(--name-font); font-weight: 700; line-height: 1.2; white-space: nowrap; max-width: 100%; }
-canvas.pname { max-width: none; flex: none; }
 .painted { background-color: currentcolor; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-canvas.pname { display: block; }
+canvas.pname { display: block; max-width: none; flex: none; }
 .chat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, currentcolor 12%, transparent); }
 .chat .msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat .ts { opacity: .6; margin-right: 6px; font-variant-numeric: tabular-nums; }
@@ -485,7 +482,7 @@ textarea.code:focus-visible { border-color: var(--focus-ring); box-shadow: 0 0 0
 .sorting { user-select: none; }
 .item .grip { margin-left: -4px; }
 .rename { height: 26px; padding: 0 6px; flex: 1; min-width: 0; }
-.shadow-row { grid-template-columns: auto repeat(3, minmax(0, 1fr)) auto; background: var(--surface); }
+.shadow-row { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
 .shadow-row .color { grid-column: 2 / 5; }
 
 /* collapsible groups */
@@ -622,6 +619,28 @@ input[type='range']::-moz-range-track { background: var(--control-border); }
   .topbar-tools .btn.small { padding: 0 8px; }
   #presetsBtn { padding: 0 9px; }
 }
+/* ---------- uitest pass 2 ---------- */
+h3.label { margin: 0; }
+/* panel toggles: press and hover feedback like the group heads */
+.ptoggle:active { opacity: .6; transition: none; }
+@media (hover: hover) and (pointer: fine) { .ptoggle:hover span { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; } }
+/* layer rows: on mouse devices the row tools appear on hover, focus or selection, so names get the room */
+@media (hover: hover) and (pointer: fine) {
+  .item .tools { display: none; }
+  .item:hover .tools, .item:focus-within .tools, .item.sel .tools { display: flex; }
+  .item:hover .meta, .item:focus-within .meta { display: none; }
+}
+/* palette rows in narrow panels (phones): colour on the first line, share and opacity with the strength */
+@container (max-width: 380px) {
+  .prow { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'g c d' '. t t' '. s a'; }
+  .prow > .share { text-align: left; }
+  .prow > .numwrap { justify-self: end; }
+  .prow .color { flex-wrap: nowrap; }
+  .prow .hex { width: auto; flex: 1; min-width: 64px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ptoggle svg, .ghead svg, .sortable-item { transition: none; }
+}
 
 </style>
 </head>
@@ -647,6 +666,7 @@ input[type='range']::-moz-range-track { background: var(--control-border); }
     </div>
   </header>
 
+  <h1 class="sr-only">cyex paints: 7TV name paint editor</h1>
   <main class="wrap layout">
     <section class="editor" id="editor" aria-label="Editor" tabindex="-1"></section>
     <aside class="stage" id="stage" aria-label="Preview and export"></aside>
@@ -987,7 +1007,7 @@ window.PL = window.PL || {};
     out.repeat = !!p.repeat;
     const ang = Number.isFinite(+p.angle) ? +p.angle : 90;
     out.angle = ((ang % 360) + 360) % 360;
-    if (out.angle !== ang) warnings.push(`Angle ${ang} became ${out.angle}.`);
+    if (out.angle !== ang) warnings.push(`The angle ${PL.fmtNum(ang, ang % 1 ? 1 : 0)}° was outside 0–360° and became ${PL.fmtNum(out.angle, out.angle % 1 ? 1 : 0)}°.`);
     out.shape = p.shape === 'ellipse' ? 'ellipse' : 'circle';
     out.image_url = safeUrl(p.image_url);
     if (p.image_url && !out.image_url) warnings.push('The image URL was dropped; only http and https links work.');
@@ -1014,7 +1034,7 @@ window.PL = window.PL || {};
     out.shadows = (Array.isArray(p.shadows) ? p.shadows : []).filter((s) => s && typeof s === 'object').slice(0, 8).map((s) => ({
       x_offset: clamp(+s.x_offset || 0, -10, 10), y_offset: clamp(+s.y_offset || 0, -10, 10), radius: clamp(+s.radius || 0, 0, 20), color: toInt(s.color),
     }));
-    if (badColours) warnings.push(badColours > 1 ? `${badColours} colours weren't valid and became black.` : 'One colour wasn’t valid and became black.');
+    if (badColours) warnings.push(badColours > 1 ? `${badColours} colours weren’t valid and became black.` : 'One colour wasn’t valid and became black.');
     return withWarnings ? { paint: out, warnings } : out;
   }
   // Only http(s) links go into CSS; anything else (javascript:, data:, broken strings) is dropped.
@@ -3424,9 +3444,14 @@ window.PL = window.PL || {};
   let collapsedPanels = new Set();
   try { collapsedPanels = new Set(JSON.parse(localStorage.getItem(PANELS_KEY) || '[]')); } catch (e) {}
   const savePanels = () => { try { localStorage.setItem(PANELS_KEY, JSON.stringify([...collapsedPanels])); } catch (e) {} };
+  // Keys are per editor mode ("anim:Paint" vs "static:Paint"), so the two editors don't share state.
+  // extra.open forces the panel open (and forgets that it was collapsed).
+  let panelSeq = 0;
   function panel(title, body, tools = [], extra = {}) {
-    const key = extra.key || title;
-    const bodyEl = h('div', { class: 'body' }, body);
+    const mode = PL.App && PL.App.state ? PL.App.state.mode + ':' : '';
+    const key = extra.key || mode + title;
+    const bodyId = 'pb' + ++panelSeq;
+    const bodyEl = h('div', { class: 'body', id: bodyId }, body);
     const sec = h('section', { class: 'panel', id: extra.id || null });
     const setOpen = (open) => {
       bodyEl.hidden = !open;
@@ -3435,9 +3460,13 @@ window.PL = window.PL || {};
       if (open) collapsedPanels.delete(key); else collapsedPanels.add(key);
       savePanels();
     };
-    const tog = h('button', { type: 'button', class: 'ptoggle', 'aria-expanded': 'true', onclick: () => setOpen(bodyEl.hidden) }, icon('chevron'), h('span', null, title));
-    if (collapsedPanels.has(key)) { bodyEl.hidden = true; sec.classList.add('collapsed'); tog.setAttribute('aria-expanded', 'false'); }
-    sec.append(h('header', null, h('h2', null, tog), extra.count != null ? h('span', { class: 'count' }, extra.count) : null, ...tools), bodyEl);
+    const tog = h('button', { type: 'button', class: 'ptoggle', 'aria-expanded': 'true', 'aria-controls': bodyId, 'data-tip': title, onclick: () => setOpen(bodyEl.hidden) }, icon('chevron'), h('span', null, title));
+    if (extra.open) { if (collapsedPanels.delete(key)) savePanels(); }
+    else if (collapsedPanels.has(key)) { bodyEl.hidden = true; sec.classList.add('collapsed'); tog.setAttribute('aria-expanded', 'false'); }
+    const countEl = h('span', { class: 'count', hidden: extra.count == null || null }, extra.count ?? '');
+    sec.append(h('header', null, h('h2', null, tog), countEl, ...tools), bodyEl);
+    // counts that change with in-place edits (stops, shadows) update through this
+    sec.setCount = (n) => { countEl.textContent = n ? String(n) : ''; countEl.hidden = !n; };
     return sec;
   }
 
@@ -3491,7 +3520,7 @@ window.PL = window.PL || {};
       if (e.key === 'End') { e.preventDefault(); pick(options[options.length - 1][0]); }
     });
     render();
-    el.setValue = (v) => { value = v; render(); };
+    el.setValue = (v) => { if (v === value) return; value = v; render(); }; // no rebuild when unchanged, so focus stays
     return el;
   }
 
@@ -3503,7 +3532,7 @@ window.PL = window.PL || {};
 
   // ---- popover + select ----
   let openPop = null, popSeq = 0;
-  function closePop() { if (openPop) { openPop.el.remove(); document.removeEventListener('pointerdown', openPop.out, true); openPop.anchor?.setAttribute('aria-expanded', 'false'); const a = openPop.anchor; openPop = null; return a; } }
+  function closePop() { if (openPop) { openPop.el.remove(); document.removeEventListener('pointerdown', openPop.out, true); openPop.anchor?.setAttribute('aria-expanded', 'false'); openPop.anchor?.removeAttribute('aria-controls'); const a = openPop.anchor; openPop = null; return a; } }
   function popover(anchor, content, { onKey, label } = {}) {
     closePop();
     const id = 'pop' + ++popSeq;
@@ -3559,7 +3588,7 @@ window.PL = window.PL || {};
     const open = () => {
       let kb = Math.max(0, options.findIndex(([v]) => v === value));
       const items = options.map(([v, l], i) => h('button', { type: 'button', class: 'option', role: 'option', 'aria-selected': String(v === value), tabindex: '-1', onclick: () => choose(i) }, l));
-      const choose = (i) => { value = options[i][0]; txt.textContent = cur(); trigger.setAttribute('aria-label', label ? label + ': ' + cur() : ''); closePop(); trigger.focus(); onChange(value); };
+      const choose = (i) => { value = options[i][0]; txt.textContent = cur(); if (label) trigger.setAttribute('aria-label', label + ': ' + cur()); else trigger.removeAttribute('aria-label'); closePop(); trigger.focus(); onChange(value); };
       let keys = null;
       const pop = popover(trigger, items, { label, onKey: (e) => keys.onKey(e) });
       keys = listboxKeys(items, () => kb, (k) => { kb = k; }, choose, trigger, pop);
@@ -3593,7 +3622,7 @@ window.PL = window.PL || {};
     let aIn = null;
     const parts = [h('label', { class: 'swatch' }, fill, picker), hexIn];
     if (alpha != null && !opts.noAlpha) {
-      aIn = slider('Opacity', alpha, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { alpha = v; emit(false); }, onCommit: () => emit(true) });
+      aIn = slider((opts.label || 'Colour') + ' opacity', alpha, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { alpha = v; emit(false); }, onCommit: () => emit(true) });
       aIn.classList.add('grow');
       parts.push(aIn);
     }
@@ -3634,8 +3663,15 @@ window.PL = window.PL || {};
           me.addEventListener('pointermove', move); me.addEventListener('pointerup', up); me.addEventListener('pointercancel', up);
         });
         hd.addEventListener('keydown', (e) => {
-          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); stops[i].at = Math.round(PL.clamp(stops[i].at + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 0.1 : 0.01)) * 1000) / 1000; sel = i; renderHandles(); renderList(); emit(true); bar.querySelectorAll('.handle')[i].focus(); }
-          if ((e.key === 'Delete' || e.key === 'Backspace') && stops.length > 1) { e.preventDefault(); remove(i); }
+          // arrows move live; one undo step and a re-sort happen once the key has been let go for a moment
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault(); stops[i].at = Math.round(PL.clamp(stops[i].at + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 0.1 : 0.01)) * 1000) / 1000; sel = i;
+            hd.style.left = stops[i].at * 100 + '%'; hd.setAttribute('aria-label', `Stop ${i + 1} at ${Math.round(stops[i].at * 100)}%`);
+            const row = list.children[i]; row && row.posCtl && row.posCtl(stops[i].at); emit(false);
+            clearTimeout(keyTimer);
+            keyTimer = setTimeout(() => { const cur = stops[i]; stops.sort((a, b) => a.at - b.at); sel = stops.indexOf(cur); renderAll(); emit(true); bar.querySelectorAll('.handle')[sel]?.focus(); }, 500);
+          }
+          if ((e.key === 'Delete' || e.key === 'Backspace') && stops.length > 1) { e.preventDefault(); remove(i, 'handle'); }
         });
         bar.append(hd);
       });
@@ -3650,7 +3686,13 @@ window.PL = window.PL || {};
       sel = stops.findIndex((s) => s.at === at);
       renderAll(); emit(true);
     });
-    function remove(i) { stops.splice(i, 1); sel = Math.min(sel, stops.length - 1); renderAll(); emit(true); }
+    // removing keeps keyboard focus nearby: the next handle or remove button, else Add stop
+    function remove(i, from) {
+      stops.splice(i, 1); sel = Math.min(sel, stops.length - 1); renderAll(); emit(true);
+      const j = Math.min(i, stops.length - 1);
+      const next = from === 'handle' ? bar.querySelectorAll('.handle')[j] : list.children[j]?.querySelector('[aria-label^="Remove stop"]:not([disabled])');
+      (next || addStopB).focus();
+    }
     function renderList() {
       list.textContent = '';
       stops.forEach((s, i) => {
@@ -3672,9 +3714,14 @@ window.PL = window.PL || {};
       });
     }
     function markSel() { [...list.children].forEach((r, i) => r.classList.toggle('sel', i === sel)); bar.querySelectorAll('.handle').forEach((x, i) => x.classList.toggle('sel', i === sel)); }
-    function renderAll() { fillEl.style.background = cssOf(); renderHandles(); renderList(); }
+    function renderAll() {
+      fillEl.style.background = cssOf(); renderHandles(); renderList();
+      if (addStopB) { addStopB.disabled = stops.length >= MAX_STOPS; addStopB.dataset.tip = addStopB.disabled ? `Up to ${MAX_STOPS} stops` : ''; if (!addStopB.disabled) delete addStopB.dataset.tip; }
+      if (opts.onCount) opts.onCount(stops.length);
+    }
+    let keyTimer = 0, addStopB = null;
     const tools = h('div', { class: 'row' },
-      btn('Add stop', () => { if (stops.length >= MAX_STOPS) { toast(`A gradient can have up to ${MAX_STOPS} stops.`); return; } const a = stops[sel] || stops[0]; const b = stops[sel + 1]; const at = b ? (a.at + b.at) / 2 : a ? Math.min(1, a.at + 0.1) : 0; const c = sampleAt(at); stops.push({ at: Math.round(at * 1000) / 1000, color: c.color, a: c.a }); stops.sort((x, y) => x.at - y.at); sel = stops.findIndex((s) => s.at === Math.round(at * 1000) / 1000); renderAll(); emit(true); }, 'secondary small', 'plus'),
+      addStopB = btn('Add stop', () => { if (stops.length >= MAX_STOPS) { toast(`A gradient can have up to ${MAX_STOPS} stops.`); return; } const a = stops[sel] || stops[0]; const b = stops[sel + 1]; const at = b ? (a.at + b.at) / 2 : a ? Math.min(1, a.at + 0.1) : 0; const c = sampleAt(at); stops.push({ at: Math.round(at * 1000) / 1000, color: c.color, a: c.a }); stops.sort((x, y) => x.at - y.at); sel = stops.findIndex((s) => s.at === Math.round(at * 1000) / 1000); renderAll(); emit(true); }, 'secondary small', 'plus'),
       btn('Reverse', () => { stops.forEach((s) => (s.at = Math.round((1 - s.at) * 1000) / 1000)); stops.reverse(); renderAll(); emit(true); }, 'ghost small', 'swap'),
       btn('Spread evenly', () => { stops.sort((a, b) => a.at - b.at); stops.forEach((s, i) => (s.at = stops.length > 1 ? Math.round((i / (stops.length - 1)) * 1000) / 1000 : 0)); renderAll(); emit(true); }, 'ghost small', 'spread'),
       opts.palettes ? paletteMenu((pal) => { stops.splice(0, stops.length, ...PL.clone(pal)); sel = 0; renderAll(); emit(true); }) : null);
@@ -3698,9 +3745,12 @@ window.PL = window.PL || {};
   }
 
   // ---- dialog ----
+  const openDialogs = new Map(); // title -> handle: a second open of the same dialog focuses the first
   function dialog(title, body, { footer, wide, onClose } = {}) {
+    if (openDialogs.has(title)) { const o = openDialogs.get(title); o.focusFirst(); return o; }
     const prev = document.activeElement;
-    const close = () => { back.remove(); document.removeEventListener('keydown', key, true); onClose && onClose(); prev && prev.focus && prev.focus(); };
+    let closed = false;
+    const close = () => { if (closed) return; closed = true; openDialogs.delete(title); back.remove(); document.removeEventListener('keydown', key, true); onClose && onClose(); prev && prev.isConnected && prev.focus && prev.focus(); };
     const box = h('div', { class: 'dialog' + (wide ? ' wide' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
       h('header', null, h('h2', null, title), iconBtn('x', 'Close', () => close())),
       h('div', { class: 'dbody' }, body),
@@ -3727,8 +3777,12 @@ window.PL = window.PL || {};
     };
     document.addEventListener('keydown', key, true);
     document.body.append(back);
-    setTimeout(() => (box.querySelector('[autofocus]') || box.querySelector('.dbody input, .dbody textarea, .dbody button') || box).focus(), 0);
-    return { close, box };
+    // first field, else the first footer button (Cancel comes first, so Enter never starts something risky)
+    const focusFirst = () => (box.querySelector('[autofocus]') || box.querySelector('.dbody input, .dbody textarea, .dbody button') || box.querySelector('footer button') || box.querySelector('header button')).focus();
+    setTimeout(focusFirst, 0);
+    const handle = { close, box, focusFirst };
+    openDialogs.set(title, handle);
+    return handle;
   }
 
   // ---- toasts ----
@@ -3736,7 +3790,8 @@ window.PL = window.PL || {};
   // A repeat of the same message bumps a ×N count instead of stacking; hover or focus holds a toast.
   function toast(msg, kind = 'info') {
     const host = document.getElementById(kind === 'error' ? 'errors' : 'toasts');
-    const life = kind === 'error' ? 9000 : 3500;
+    // long messages stay up long enough to read (about 60 ms a character)
+    const life = Math.max(kind === 'error' ? 9000 : 3500, String(msg).length * 60);
     const same = [...host.children].find((x) => x.dataset.msg === msg);
     if (same) { same.bump(); return; }
     const text = h('span', null, msg), count = h('b', { class: 'tcount' });
@@ -3813,7 +3868,10 @@ window.PL = window.PL || {};
       const startScroll = scrollPos();
       let lastY = e.clientY, raf = 0;
       const edge = () => {
-        const top = scroller ? scroller.getBoundingClientRect().top : 0, bottom = scroller ? scroller.getBoundingClientRect().bottom : innerHeight;
+        if (!grip.isConnected) { end(true); return; } // the list was redrawn mid-drag: stop cleanly
+        // the page case starts below the sticky header, so the zone isn't hidden under it
+        const bar = document.querySelector('.topbar'), barH = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0;
+        const top = scroller ? scroller.getBoundingClientRect().top : barH, bottom = scroller ? scroller.getBoundingClientRect().bottom : innerHeight;
         const zone = 48, v = lastY < top + zone ? -(top + zone - lastY) : lastY > bottom - zone ? lastY - (bottom - zone) : 0;
         if (v) { const d = Math.sign(v) * Math.min(18, Math.ceil(Math.abs(v) / 3)); if (scroller) scroller.scrollTop += d; else scrollBy(0, d); move({ clientY: lastY }); }
         raf = requestAnimationFrame(edge);
@@ -3838,14 +3896,22 @@ window.PL = window.PL || {};
           it.style.transform = s ? `translateY(${s}px)` : '';
         });
       };
-      const end = () => {
-        grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
+      // end(true) cancels: Escape, a lost pointer, the window losing focus, or the list being redrawn
+      let ended = false;
+      const end = (cancel) => {
+        if (ended) return; ended = true;
+        grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', onUp); grip.removeEventListener('pointercancel', onCancel);
+        grip.removeEventListener('lostpointercapture', onCancel); removeEventListener('keydown', onKey, true); removeEventListener('blur', onCancel);
         cancelAnimationFrame(raf);
         items.forEach((it) => { it.style.transform = ''; });
         el.classList.remove('dragging'); container.classList.remove('sorting');
-        if (to !== from) onMove(from, to);
+        if (cancel !== true && to !== from && grip.isConnected) onMove(from, to);
       };
-      grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+      const onUp = () => end(false), onCancel = () => end(true);
+      const onKey = (k) => { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); end(true); } };
+      grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', onUp); grip.addEventListener('pointercancel', onCancel);
+      grip.addEventListener('lostpointercapture', () => { if (!ended) setTimeout(() => { if (!ended) end(false); }); });
+      addEventListener('keydown', onKey, true); addEventListener('blur', onCancel);
     });
     container.addEventListener('keydown', (e) => {
       const grip = e.target.closest && e.target.closest('.grip');
@@ -3864,7 +3930,7 @@ window.PL = window.PL || {};
 
   // ---- collapsible group ----
   const GROUPS_KEY = 'cyexPaints.openGroups';
-  let openGroups = new Set(['Colours', 'Settings', 'Shape', 'Layer']);
+  let openGroups = new Set(['Colours', 'Settings', 'Shape', 'Layer', 'Size and timing']);
   try { const g = JSON.parse(localStorage.getItem(GROUPS_KEY) || 'null'); if (Array.isArray(g)) openGroups = new Set(g); } catch (e) {}
   const saveGroups = () => { try { localStorage.setItem(GROUPS_KEY, JSON.stringify([...openGroups])); } catch (e) {} };
   function group(title, content, { open, count } = {}) {
@@ -3882,6 +3948,7 @@ window.PL = window.PL || {};
 
   // ---- weighted palette editor ----
   // pal: { colors: [{ c, a, w }], blend, loop }. Strength = weight; the share column shows the result.
+  const MAX_COLOURS = 24; // the engine keeps up to 24 palette colours
   function paletteEditor(pal, onChange, opts = {}) {
     const root = h('div', { class: 'paled' });
     const bar = h('div', { class: 'pbar' }, h('i'));
@@ -3893,7 +3960,15 @@ window.PL = window.PL || {};
     };
     const shareEls = [];
     const zeroHint = h('p', { class: 'hint', hidden: true }, 'Every strength is 0, so nothing is drawn. Raise one, or use Even out.');
-    const shares = () => { const raw = pal.colors.reduce((s, c) => s + c.w, 0), tot = raw || 1; zeroHint.hidden = raw > 0; pal.colors.forEach((c, i) => { if (shareEls[i]) shareEls[i].textContent = Math.round((c.w / tot) * 100) + '%'; }); };
+    // largest-remainder rounding, so the shown shares always add up to 100%
+    const shares = () => {
+      const raw = pal.colors.reduce((s, c) => s + c.w, 0), tot = raw || 1; zeroHint.hidden = raw > 0;
+      const exact = pal.colors.map((c) => (c.w / tot) * 100), base = exact.map(Math.floor);
+      let left = raw > 0 ? 100 - base.reduce((s, x) => s + x, 0) : 0;
+      exact.map((x, i) => [x - base[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { base[i]++; left--; } });
+      pal.colors.forEach((c, i) => { if (shareEls[i]) shareEls[i].textContent = base[i] + '%'; });
+      if (addColB) addColB.disabled = pal.colors.length >= MAX_COLOURS;
+    };
     function render() {
       list.textContent = ''; shareEls.length = 0;
       pal.colors.forEach((col, i) => {
@@ -3911,16 +3986,17 @@ window.PL = window.PL || {};
           colorField(col.c, null, (hx, a, c) => { col.c = hx; emit(c); }, { label: `Colour ${i + 1}` }),
           share,
           h('span', { class: 'numwrap' }, al, h('span', { class: 'unit' }, '%')),
-          iconBtn('trash', `Remove colour ${i + 1}`, () => { pal.colors.splice(i, 1); render(); emit(true); }, { cls: 'sm danger', attrs: { disabled: pal.colors.length <= 1 } }),
+          iconBtn('trash', `Remove colour ${i + 1}`, () => { pal.colors.splice(i, 1); render(); emit(true); const j = Math.min(i, pal.colors.length - 1); (list.children[j]?.querySelector('[aria-label^="Remove colour"]:not([disabled])') || addColB).focus(); }, { cls: 'sm danger', attrs: { disabled: pal.colors.length <= 1 } }),
           h('div', { class: 'pstr' }, h('span', { class: 'label' }, 'Strength'), str));
         list.append(row);
       });
       shares(); paintBar();
     }
     sortable(list, (from, to) => { const [c] = pal.colors.splice(from, 1); pal.colors.splice(to, 0, c); render(); emit(true); });
+    let addColB = null;
     const blend = slider('Smoothness', pal.blend ?? 1, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, hint: '0% gives hard bands, 100% smooth blends', onInput: (v) => { pal.blend = v; emit(false); }, onCommit: () => emit(true) });
     const tools = h('div', { class: 'row' },
-      btn('Add colour', () => { const last = pal.colors[pal.colors.length - 1]; pal.colors.push({ c: last ? last.c : '#ffffff', a: 1, w: 1 }); render(); emit(true); }, 'secondary small', 'plus'),
+      addColB = btn('Add colour', () => { if (pal.colors.length >= MAX_COLOURS) return; const last = pal.colors[pal.colors.length - 1]; pal.colors.push({ c: last ? last.c : '#ffffff', a: 1, w: 1 }); render(); emit(true); }, 'secondary small', 'plus'),
       btn('Even out', () => { pal.colors.forEach((c) => (c.w = 1)); render(); emit(true); }, 'ghost small', 'spread'),
       btn('Reverse', () => { pal.colors.reverse(); render(); emit(true); }, 'ghost small', 'swap'),
       paletteMenu((stops) => { const np = PL.stopsToPalette(stops, pal.loop); pal.colors = np.colors; render(); emit(true); }));
@@ -4014,7 +4090,9 @@ window.PL = window.PL || {};
     }
     const res = Paint.normalize(obj, true);
     A.state.static = res.paint; A.state.mode = 'static';
-    return res.warnings.length ? 'Paint imported. ' + res.warnings.join(' ') : 'Paint imported.';
+    // corrections get their own neutral toast (it stays up longer for longer text), not the success one
+    if (res.warnings.length) setTimeout(() => PL.UI.toast('Some values were corrected: ' + res.warnings.join(' ')));
+    return 'Paint imported.';
   }
 
   let saveTimer = 0;
@@ -4051,7 +4129,13 @@ window.PL = window.PL || {};
   }
   const undo = () => { if (!hist.past.length) return; commit(); if (!hist.past.length) return; hist.future.push(hist.last); restore(hist.past.pop()); };
   const redo = () => { commit(); if (!hist.future.length) return; hist.past.push(hist.last); restore(hist.future.pop()); };
-  function updateUndo() { $('#undoBtn').disabled = !hist.past.length; $('#redoBtn').disabled = !hist.future.length; }
+  function updateUndo() {
+    const u = $('#undoBtn'), r = $('#redoBtn'), had = document.activeElement;
+    u.disabled = !hist.past.length; r.disabled = !hist.future.length;
+    // a button that just disabled itself would drop focus to the page: hand it to its partner
+    if (had === u && u.disabled) (r.disabled ? $('#presetsBtn') : r).focus();
+    else if (had === r && r.disabled) (u.disabled ? $('#presetsBtn') : u).focus();
+  }
 
   // Every edit calls changed(); commit=true for discrete actions, sliders commit on release.
   function changed(doCommit) {
@@ -4142,23 +4226,25 @@ window.PL = window.PL || {};
 
   function shadowsPanel(list) {
     const body = h('div', { class: 'stops' });
-    const render = () => {
+    let render = () => {
       body.textContent = '';
       if (!list.length) body.append(h('p', { class: 'hint' }, 'No shadows. 7TV draws each one as a CSS drop-shadow, in order.'));
       list.forEach((s, i) => {
         const { hex, alpha } = PL.decToHexAlpha(s.color);
         body.append(h('div', { class: 'shadow-row sortable-item' }, grip(`Move shadow ${i + 1}`),
-          slider('X', s.x_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.x_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
-          slider('Y', s.y_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.y_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
-          slider('Blur', s.radius, { min: 0, max: 20, step: 0.5, unit: 'px', onInput: (v) => { s.radius = v; A.changed(false); }, onCommit: () => A.commit() }),
-          iconBtn('trash', `Remove shadow ${i + 1}`, () => { list.splice(i, 1); render(); A.changed(true); }, { cls: 'sm danger' }),
+          slider(`Shadow ${i + 1} X`, s.x_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.x_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
+          slider(`Shadow ${i + 1} Y`, s.y_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.y_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
+          slider(`Shadow ${i + 1} blur`, s.radius, { min: 0, max: 20, step: 0.5, unit: 'px', onInput: (v) => { s.radius = v; A.changed(false); }, onCommit: () => A.commit() }),
+          iconBtn('trash', `Remove shadow ${i + 1}`, () => { list.splice(i, 1); render(); A.changed(true); const j = Math.min(i, list.length - 1); (body.querySelectorAll('[aria-label^="Remove shadow"]')[j] || add).focus(); }, { cls: 'sm danger' }),
           colorField(hex, alpha, (hx, a, c) => { s.color = PL.hexAlphaToDec(hx, a); A.changed(c); }, { label: `Shadow ${i + 1}` })));
       });
     };
     render();
     sortable(body, (from, to) => { const [x] = list.splice(from, 1); list.splice(to, 0, x); render(); A.changed(true); });
     const add = btn('Add shadow', () => { list.push({ x_offset: 0, y_offset: 0, radius: 2, color: PL.hexAlphaToDec('#000000', 0.8) }); render(); A.changed(true); }, 'secondary small', 'plus');
-    return panel('Shadows', [body, h('div', { class: 'row' }, add)], [], { count: list.length || null });
+    const sec = panel('Shadows', [body, h('div', { class: 'row' }, add)], [], { count: list.length || null });
+    const baseRender = render; render = () => { baseRender(); sec.setCount(list.length); }; // keep the header count in step
+    return sec;
   }
 
   function tweakControls(tw, hint) {
@@ -4194,11 +4280,13 @@ window.PL = window.PL || {};
     root.append(panel('Paint', paintBody));
     if (!isUrl) {
       const es = Paint.editorStops(p);
+      let stopsPanel = null; // assigned below; the editor reports counts before the panel exists
       const ed = stopsEditor(es, (stops, c) => {
         p.stops = stops.map((s) => ({ at: Math.round(s.at * 10000) / 10000, color: PL.hexAlphaToDec(s.color, s.a) }));
         A.changed(c);
-      }, { palettes: true });
-      root.append(panel('Colour stops', [ed], [], { count: p.stops.length }));
+      }, { palettes: true, onCount: (n) => stopsPanel && stopsPanel.setCount(n) });
+      stopsPanel = panel('Colour stops', [ed], [], { count: p.stops.length });
+      root.append(stopsPanel);
     }
     root.append(shadowsPanel(p.shadows));
   }
@@ -4261,7 +4349,7 @@ window.PL = window.PL || {};
       const ok = await copyText(A.codePre.textContent);
       copyB.replaceChildren(icon(ok ? 'check' : 'copy')); copyB.style.color = ok ? 'var(--green)' : '';
       setTimeout(() => { copyB.replaceChildren(icon('copy')); copyB.style.color = ''; }, 1600);
-      if (!ok) toast('Copy failed. Select the code and copy it by hand.', 'error');
+      if (!ok) toast('Couldn’t copy. Select the code and copy it by hand.', 'error');
     });
     const wrap = h('div', { class: 'code-wrap' }, h('div', { class: 'code-head' }, tabSeg, h('span', { class: 'grow' }), copyB), A.codePre);
     wrap.getText = getText;
@@ -4283,11 +4371,11 @@ window.PL = window.PL || {};
     const pngTex = btn('Paint PNG', async () => {
       const [w, hh] = readSize();
       try { const cv = await staticTexture(p, w, hh); cv.toBlob((b) => download(b, slug(p.name) + '-paint.png')); }
-      catch (e) { toast(e.message, 'error'); }
+      catch (e) { toast(e.friendly ? e.message : 'Couldn’t make the PNG. Try a smaller size.', 'error'); }
     }, 'secondary', 'image');
     const pngName = btn('Name PNG', async () => {
       try { const cv = await staticNameCanvas(A.state.nameSize); cv.toBlob((b) => download(b, slug(p.name) + '-name.png')); }
-      catch (e) { toast(e.message, 'error'); }
+      catch (e) { toast(e.friendly ? e.message : 'Couldn’t make the PNG. Try a smaller size.', 'error'); }
     }, 'secondary', 'image');
     const toAnim = btn('Animate this paint', () => { A.state.anim = staticToAnim(A.state.static); A.state.mode = 'anim'; A.state.sel = A.state.anim.layers[0] ? { kind: 'layer', id: A.state.anim.layers[0].id } : null; A.renderAll(); A.commit(); toast('Copied into the animated editor as a layer.', 'success'); }, 'primary', 'wand');
     return panel('Export', [
@@ -4302,7 +4390,7 @@ window.PL = window.PL || {};
   function loadImage(src) {
     return new Promise((res, rej) => {
       const im = new Image(); im.crossOrigin = 'anonymous';
-      im.onload = () => res(im); im.onerror = () => rej(new Error('Could not load that image. The host may block cross-origin use.'));
+      im.onload = () => res(im); im.onerror = () => rej(Object.assign(new Error('Couldn’t load that image. The host may block other sites from using it.'), { friendly: true }));
       im.src = src;
     });
   }
@@ -4310,12 +4398,12 @@ window.PL = window.PL || {};
     const cv = h('canvas', { width: w, height: hh });
     const ctx = cv.getContext('2d');
     if (p.function === 'URL') {
-      if (!p.image_url) throw new Error('Add an image URL first.');
+      if (!p.image_url) throw Object.assign(new Error('Add an image link first.'), { friendly: true });
       const safe = Paint.safeUrl(p.image_url);
-      if (!safe) throw new Error('Add an http or https image link first.');
+      if (!safe) throw Object.assign(new Error('Add an http or https image link first.'), { friendly: true });
       const im = await loadImage(safe);
       ctx.drawImage(im, 0, 0, w, hh);
-      try { ctx.getImageData(0, 0, 1, 1); } catch (e) { throw new Error('That host blocks reading the image, so it can only be previewed, not exported.'); }
+      try { ctx.getImageData(0, 0, 1, 1); } catch (e) { throw Object.assign(new Error('That host blocks reading the image, so it can be previewed but not exported.'), { friendly: true }); }
     } else ctx.putImageData(Paint.rasterize(p, w, hh), 0, 0);
     return cv;
   }
@@ -4384,6 +4472,37 @@ window.PL = window.PL || {};
     return item ? { kind: s.kind, item, list } : null;
   };
 
+  let lastSettingsId = null;
+  const titleOf = (kind, def, item) => (kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name);
+
+  // Selecting only swaps the settings column and the row highlight: no full editor rebuild,
+  // so it stays instant with dozens of layers.
+  function selectItem(kind, id) {
+    if (A.state.sel && A.state.sel.id === id) return;
+    A.state.sel = { kind, id };
+    for (const row of document.querySelectorAll('#editor .item')) {
+      const on = row.dataset.id === id;
+      row.classList.toggle('sel', on);
+      const nb = row.querySelector('.name'); if (nb) { if (on) nb.setAttribute('aria-current', 'true'); else nb.removeAttribute('aria-current'); }
+    }
+    const col = $('.settings-col'), s = findSel();
+    if (col) col.replaceChildren(s ? settingsPanel(s) : emptySettings());
+    A.save();
+  }
+  const emptySettings = () => panel('Settings', [h('div', { class: 'empty' }, icon('layers'), h('span', null, 'Select a layer or effect to change it.'))], [], { key: 'settings-empty' });
+  // keep every place that shows an item's name in step while it is renamed
+  function syncNames(item) {
+    const s = findSel();
+    const row = $(`#editor [data-id="${item.id}"]`);
+    const nb = row && row.querySelector('button.name'); if (nb) nb.textContent = item.name;
+    const g = row && row.querySelector('.grip'); if (g) g.setAttribute('aria-label', 'Move ' + item.name);
+    if (s && s.item === item) {
+      const def = s.kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
+      const t = $('#settingsPanel .ptoggle span'); if (t) t.textContent = titleOf(s.kind, def, item);
+      const tg = $('#settingsPanel .ptoggle'); if (tg) tg.dataset.tip = titleOf(s.kind, def, item);
+    }
+  }
+
   function renderAnimEditor(root) {
     const d = A.state.anim;
     if (!findSel()) A.state.sel = d.layers.length ? { kind: 'layer', id: d.layers[d.layers.length - 1].id } : d.effects.length ? { kind: 'effect', id: d.effects[0].id } : null;
@@ -4394,7 +4513,7 @@ window.PL = window.PL || {};
     // layers list (top layer first)
     const layerList = h('div', { class: 'list', role: 'list', 'aria-label': 'Layers, top first' });
     const items = [...d.layers].reverse();
-    if (!items.length) layerList.append(h('div', { class: 'empty' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
+    if (!items.length) layerList.append(h('div', { class: 'empty', role: 'listitem' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
     for (const l of items) layerList.append(listItem(l, 'layer', d.layers));
     sortable(layerList, (from, to, kb) => {
       const n = d.layers.length, a = n - 1 - from, b = n - 1 - to;
@@ -4407,7 +4526,7 @@ window.PL = window.PL || {};
       btn('Add element', () => A.openLibrary('layer', 'Scene elements'), 'ghost small', 'sparkles'))], [], { count: d.layers.length }));
 
     const fxList = h('div', { class: 'list', role: 'list', 'aria-label': 'Effects, applied top to bottom' });
-    if (!d.effects.length) fxList.append(h('div', { class: 'empty' }, icon('fx'), h('span', null, 'Effects run on the finished image, top to bottom: lighting, 3D, distortion, colour.')));
+    if (!d.effects.length) fxList.append(h('div', { class: 'empty', role: 'listitem' }, icon('fx'), h('span', null, 'Effects run on the finished image, top to bottom: lighting, 3D, distortion, colour.')));
     for (const e of d.effects) fxList.append(listItem(e, 'effect', d.effects));
     sortable(fxList, (from, to, kb) => {
       const [it] = d.effects.splice(from, 1); d.effects.splice(to, 0, it);
@@ -4419,7 +4538,7 @@ window.PL = window.PL || {};
     colA.append(A.shadowsPanel(d.shadows));
 
     const s = findSel();
-    colB.append(s ? settingsPanel(s) : panel('Settings', [h('div', { class: 'empty' }, icon('layers'), h('span', null, 'Select a layer or effect to change it.'))]));
+    colB.append(s ? settingsPanel(s) : emptySettings());
     scheduleThumbs(true);
   }
 
@@ -4440,7 +4559,7 @@ window.PL = window.PL || {};
         labeled('Frames per second', seg(FPS, d.fps, (v) => { d.fps = v; setInfo(); A.changed(true); }, 'Frames per second')),
         slider('Loop length', d.duration, { min: 0.4, max: 8, step: 0.1, unit: 's', onInput: (v) => { d.duration = v; setInfo(); A.changed(false); }, onCommit: () => A.commit() }),
         info,
-      ], { open: true }),
+      ]),
       group('Recolour everything', A.tweakControls(d.tweak, 'Shifts the colours of the whole paint, after all layers and effects.')),
     ]);
   }
@@ -4450,14 +4569,20 @@ window.PL = window.PL || {};
     const def = kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
     const thumb = h('canvas', { class: 'thumb', width: 88, height: 22, 'data-thumb': item.id, 'aria-hidden': 'true' });
     const idx = list.indexOf(item);
-    const select_ = () => { if (!(A.state.sel && A.state.sel.id === item.id)) { A.state.sel = { kind, id: item.id }; A.renderEditor(); } };
+    const select_ = () => selectItem(kind, item.id);
     // the name is the row's real control: a named button that selects (Enter or Space), F2 or double-click renames, Delete removes
     const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-current': isSel ? 'true' : null, 'aria-describedby': null, onclick: () => select_() }, item.name || def.name);
     nameEl.addEventListener('dblclick', () => {
       const inp = h('input', { class: 'field rename', value: item.name || def.name, maxlength: 64, 'aria-label': 'Rename' });
       let finished = false;
-      const done = (ok) => { if (finished) return; finished = true; if (ok && inp.value.trim()) { item.name = inp.value.trim(); A.changed(true); } A.renderEditor(); A.focusItem(item.id); };
-      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); e.stopPropagation(); });
+      // commits in place (no re-render), so a click that ended the rename still lands where it was aimed
+      const done = (ok, byKey) => {
+        if (finished) return; finished = true;
+        if (ok && inp.value.trim()) { item.name = inp.value.trim(); nameEl.textContent = item.name; A.changed(true); syncNames(item); }
+        inp.replaceWith(nameEl);
+        if (byKey) nameEl.focus();
+      };
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); done(true, true); } if (e.key === 'Escape') { e.preventDefault(); done(false, true); } e.stopPropagation(); });
       inp.addEventListener('blur', () => done(true));
       nameEl.replaceWith(inp); inp.focus(); inp.select();
     });
@@ -4507,7 +4632,7 @@ window.PL = window.PL || {};
         const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', class: 'sr-only', onchange: async () => {
           const f = file.files[0]; if (!f) return;
           try { params[pd.k] = await fileToDataUrl(f, 512); await cacheImage(params[pd.k]); onCommit(); A.renderEditor(); }
-          catch (e) { toast('Could not read that image.', 'error'); }
+          catch (e) { toast('Couldn’t read that image. Try a PNG, JPG or WebP file.', 'error'); }
         } });
         return labeled(pd.l, h('div', { class: 'row' }, h('label', { class: 'btn secondary small' }, icon('image'), v ? 'Replace image' : 'Choose image', file),
           h('span', { class: 'hint' }, v ? 'Stored in this project (max 512 px).' : 'PNG, JPG or WebP. You can also drop a file anywhere on the page.')));
@@ -4526,7 +4651,7 @@ window.PL = window.PL || {};
     let vis = visibleKeys(def, item.params);
     const refreshIfNeeded = () => { const nv = visibleKeys(def, item.params); if (nv !== vis) { vis = nv; const old = $('#settingsPanel'); if (old) { const fd = A.focusDescriptor(); old.replaceWith(settingsPanel(s)); A.restoreFocus(fd); } } };
     const onInput = () => A.changed(false), onCommit = () => { A.changed(true); refreshIfNeeded(); };
-    const nameIn = h('input', { class: 'field', value: item.name || def.name, 'aria-label': 'Name', 'data-sel-first': '', oninput: () => { item.name = nameIn.value; const n = $(`[data-id="${item.id}"] .name`); if (n) n.textContent = item.name; A.changed(false); }, onchange: () => A.commit() });
+    const nameIn = h('input', { class: 'field', value: item.name || def.name, maxlength: 64, 'aria-label': 'Name', 'data-sel-first': '', oninput: () => { item.name = nameIn.value; syncNames(item); A.changed(false); }, onchange: () => A.commit() });
     const top = [h('p', { class: 'hint' }, def.desc), labeled('Name', nameIn)];
     if (kind === 'layer') {
       top.push(h('div', { class: 'split' },
@@ -4562,7 +4687,7 @@ window.PL = window.PL || {};
       body.push(group('Colour tweaks', A.tweakControls(item.tweak, 'Shift the colours of just this layer.')));
     }
     const hasXY = def.params.some((pd) => pd.k === 'x') || def.params.some((pd) => pd.k === 'cx' && /^Centre/.test(pd.l));
-    if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it.'));
+    if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it, or use the X and Y sliders below.'));
     const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); A.renderEditor(); A.changed(true); }, { cls: 'sm' });
     const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); A.state.sel = { kind, id: c.id }; A.renderEditor(); A.changed(true); }, { cls: 'sm' });
     // One toggle: collapses every group while any is open, expands them all once all are closed.
@@ -4577,8 +4702,11 @@ window.PL = window.PL || {};
       const label = anyOpen() ? 'Collapse all groups' : 'Expand all groups';
       toggleAll.replaceChildren(icon(anyOpen() ? 'collapse' : 'expand'));
       toggleAll.setAttribute('aria-label', label); toggleAll.dataset.tip = label;
+      toggleAll.disabled = !heads().length;
     };
-    const sec = panel((kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name), body, [toggleAll, dup, reset], { id: 'settingsPanel', key: 'settings' });
+    // a new selection always opens the settings panel, even if it was collapsed for the previous one
+    const fresh = lastSettingsId !== item.id; lastSettingsId = item.id;
+    const sec = panel(titleOf(kind, def, item), body, [toggleAll, dup, reset], { id: 'settingsPanel', key: 'settings', open: fresh || undefined });
     sec.addEventListener('click', (e) => { if (e.target.closest('.ghead')) syncToggle(); }); // single groups change it too
     syncToggle();
     return sec;
@@ -4607,7 +4735,7 @@ window.PL = window.PL || {};
     PL.imageCache[src] = { w: im.width, h: im.height, data: ctx.getImageData(0, 0, im.width, im.height).data };
   }
   async function cacheDocImages(doc) {
-    const srcs = doc.layers.filter((l) => l.type === 'image' && l.params.src).map((l) => l.params.src);
+    const srcs = doc.layers.filter((l) => (l.type === 'image' || l.type === 'sprite') && l.params.src).map((l) => l.params.src);
     await Promise.all(srcs.map((s) => cacheImage(s).catch(() => {})));
     if (srcs.length) { A.rt.dirty = true; scheduleThumbs(true); }
   }
@@ -4739,7 +4867,7 @@ window.PL = window.PL || {};
         const src = await A.fileToDataUrl(f, 512); await A.cacheImage(src);
         const l = E.newLayer('sprite', { name: f.name.replace(/\.[^.]+$/, '').slice(0, 30), params: { src } });
         A.state.anim.layers.push(l); A.state.sel = { kind: 'layer', id: l.id };
-      } catch (err) { toast('Could not read ' + f.name + '.', 'error'); }
+      } catch (err) { toast('Couldn’t read ' + (f.name.length > 40 ? f.name.slice(0, 37) + '…' : f.name) + '. Try a PNG, JPG or WebP file.', 'error'); }
     }
     A.renderAll(); A.commit(); toast(imgs.length > 1 ? `Added ${imgs.length} pictures.` : 'Added the picture as an element. Drag it on the paint image to place it.', 'success');
   });
@@ -4775,6 +4903,7 @@ window.PL = window.PL || {};
     }
     if (rt.frame >= n) rt.frame = 0;
     if (!rt.redraw && rt.shown === rt.frame) return;
+    if (A.pv && A.pv.el && A.pv.el.querySelector('.body')?.hidden) { rt.redraw = true; return; } // collapsed preview: nothing to draw
     const img = getFrame(rt.frame);
     rt.texCv.getContext('2d').putImageData(img, 0, 0);
     const text = A.state.preview.text, color = A.state.preview.color;
@@ -4806,8 +4935,11 @@ window.PL = window.PL || {};
     const result = h('div', { class: 'stack', id: 'exportResult' });
     if (lastExport) showResult(result, lastExport);
     const exportBtns = [];
-    const cancelB = btn('Cancel', () => { if (exporting) exporting.cancel = true; }, 'ghost small', 'x');
-    cancelB.hidden = true;
+    // Cancel always sits in its own row (no layout shift); it's only enabled while frames render.
+    // Encoding can't be interrupted, so Cancel is disabled then. Progress is announced politely.
+    const cancelB = btn('Cancel export', () => { if (exporting) exporting.cancel = true; }, 'ghost small', 'x');
+    cancelB.disabled = true;
+    const status = h('span', { class: 'stat', role: 'status', 'aria-live': 'polite' });
 
     // Every export works on a snapshot of the paint taken when it starts, so editing meanwhile
     // can't mix frames. Only one export runs at a time, and it can be cancelled.
@@ -4821,10 +4953,16 @@ window.PL = window.PL || {};
       exporting = { cancel: false };
       const job = exporting;
       const old = [...b.childNodes];
+      const hadFocus = document.activeElement === b || document.activeElement === document.body;
       exportBtns.forEach((x) => (x.disabled = true));
       b.replaceChildren(h('span', { class: 'spinner' }), h('span', null, 'Rendering…'));
-      cancelB.hidden = false;
-      const update = (txt) => { b.lastChild.textContent = txt; };
+      cancelB.disabled = false;
+      if (hadFocus) cancelB.focus(); // the button that had focus is now disabled; keep keyboard users on a live control
+      let lastAnnounce = 0;
+      const update = (txt, force) => {
+        b.lastChild.textContent = txt;
+        const now = performance.now(); if (force || now - lastAnnounce > 1500) { status.textContent = txt; lastAnnounce = now; }
+      };
       const frames = async () => {
         const out = [];
         for (let i = 0; i < cp.frames; i++) {
@@ -4834,23 +4972,26 @@ window.PL = window.PL || {};
           await new Promise((r) => setTimeout(r));
         }
         if (job.cancel) throw new Error('cancelled');
-        update('Encoding…'); await new Promise((r) => setTimeout(r, 20));
+        cancelB.disabled = true;
+        update('Encoding…', true); await new Promise((r) => setTimeout(r, 20));
         return out;
       };
-      try { await work({ doc, cp, frames }); }
-      catch (e) { if (e.message === 'cancelled') toast('Export cancelled.'); else { console.error(e); toast('Couldn’t finish the export. Try a smaller size or a shorter loop.', 'error'); } }
+      try { await work({ doc, cp, frames }); status.textContent = 'Export finished.'; }
+      catch (e) { status.textContent = ''; if (e.message === 'cancelled') toast('Export cancelled.'); else { console.error(e); toast('Couldn’t finish the export. Try a smaller size or a shorter loop.', 'error'); } }
       finally {
+        const focusLost = document.activeElement === cancelB || document.activeElement === document.body;
         exporting = null;
         exportBtns.forEach((x) => (x.disabled = false));
         b.replaceChildren(...old);
-        cancelB.hidden = true;
+        cancelB.disabled = true;
+        if (focusLost && b.isConnected) b.focus();
       }
     }
     function confirmHeavy(cp) {
       return new Promise((resolve) => {
         let answered = false;
         const finish = (v) => { if (answered) return; answered = true; resolve(v); dlg.close(); };
-        const dlg = dialog('This is a big export', [h('p', null, `It renders ${PL.fmtInt(cp.frames)} frames at ${cp.W}×${cp.H}, which can take a minute and use a lot of memory. A smaller size, fewer frames per second or a shorter loop make it faster.`)], {
+        const dlg = dialog('Export a big file?', [h('p', null, `It renders ${PL.fmtInt(cp.frames)} frames at ${cp.W}×${cp.H}, which can take a minute and use a lot of memory. A smaller size, fewer frames per second or a shorter loop make it faster.`)], {
           footer: [btn('Cancel', () => finish(false), 'secondary'), btn('Export anyway', () => finish(true), 'primary')],
           onClose: () => { if (!answered) { answered = true; resolve(false); } },
         });
@@ -4926,7 +5067,7 @@ window.PL = window.PL || {};
     const openP = h('label', { class: 'btn secondary small' }, icon('folder'), 'Open project', file);
 
     return panel('Export', [
-      h('div', { class: 'export-grid' }, gifB, apngB, pngB, sheetB, nameB), h('div', null, cancelB),
+      h('div', { class: 'export-grid' }, gifB, apngB, pngB, sheetB, nameB), h('div', { class: 'row' }, cancelB, status),
       result, gifOpts, nsz,
       h('div', { class: 'sub' }, h('span', { class: 'label' }, '7TV paint'),
         labeled('Where the image will be hosted', url),
@@ -4985,7 +5126,7 @@ window.PL = window.PL || {};
         if (!q && libCat[kind] !== 'All' && libCat[kind] !== cat) continue;
         const items = Object.values(defs).filter((d) => d.cat === cat && (!q || (d.name + ' ' + d.desc + ' ' + cat).toLowerCase().includes(q)));
         if (!items.length) continue;
-        list.append(h('div', { class: 'libcat' }, h('span', { class: 'label' }, cat), h('div', { class: 'cards' }, items.map((def) => {
+        list.append(h('div', { class: 'libcat' }, h('h3', { class: 'label' }, cat), h('div', { class: 'cards' }, items.map((def) => {
           const cv = h('canvas', { width: 160, height: 40, 'aria-hidden': 'true' });
           thumbs.push([cv, def]);
           return h('button', { type: 'button', class: 'card', onclick: () => add(def) }, cv, h('b', null, def.name), h('span', null, def.desc));
@@ -5106,7 +5247,8 @@ window.PL = window.PL || {};
   paintTheme();
 
   document.addEventListener('keydown', (e) => {
-    const typing = e.target.closest && e.target.closest('input, textarea, [contenteditable]');
+    // only text entry counts as typing; sliders, checkboxes and colour pickers keep the shortcuts
+    const typing = e.target.closest && e.target.closest('input:not([type=range]):not([type=checkbox]):not([type=color]):not([type=file]), textarea, [contenteditable]');
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? A.redo() : A.undo(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); A.redo(); }
     else if (e.key === ' ' && !e.defaultPrevented && A.state.mode === 'anim' && !typing && !e.target.closest('button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); A.togglePlay(); }

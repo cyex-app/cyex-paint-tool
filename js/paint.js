@@ -26,7 +26,7 @@
     out.repeat = !!p.repeat;
     const ang = Number.isFinite(+p.angle) ? +p.angle : 90;
     out.angle = ((ang % 360) + 360) % 360;
-    if (out.angle !== ang) warnings.push(`Angle ${ang} became ${out.angle}.`);
+    if (out.angle !== ang) warnings.push(`The angle ${PL.fmtNum(ang, ang % 1 ? 1 : 0)}° was outside 0–360° and became ${PL.fmtNum(out.angle, out.angle % 1 ? 1 : 0)}°.`);
     out.shape = p.shape === 'ellipse' ? 'ellipse' : 'circle';
     out.image_url = safeUrl(p.image_url);
     if (p.image_url && !out.image_url) warnings.push('The image URL was dropped; only http and https links work.');
@@ -53,7 +53,7 @@
     out.shadows = (Array.isArray(p.shadows) ? p.shadows : []).filter((s) => s && typeof s === 'object').slice(0, 8).map((s) => ({
       x_offset: clamp(+s.x_offset || 0, -10, 10), y_offset: clamp(+s.y_offset || 0, -10, 10), radius: clamp(+s.radius || 0, 0, 20), color: toInt(s.color),
     }));
-    if (badColours) warnings.push(badColours > 1 ? `${badColours} colours weren't valid and became black.` : 'One colour wasn’t valid and became black.');
+    if (badColours) warnings.push(badColours > 1 ? `${badColours} colours weren’t valid and became black.` : 'One colour wasn’t valid and became black.');
     return withWarnings ? { paint: out, warnings } : out;
   }
   // Only http(s) links go into CSS; anything else (javascript:, data:, broken strings) is dropped.

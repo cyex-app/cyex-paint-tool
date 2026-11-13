@@ -65,3 +65,20 @@ About 30, listed in findings.md:
 | Exports | 1280 | dark | yes | Cancel, big-export confirm |
 
 Questions: none new. The open ones from pass 1 keep their defaults: "Colour" spelling, "50%" format and no skill installs.
+
+## Update: fixed (all verified in the browser unless noted)
+- Rename commits in place on blur (no re-render; the click lands, focus stays); Escape cancels and refocuses the name.
+- Shortcuts (Ctrl+Z/Y, Space) work with focus on sliders, checkboxes and colour inputs.
+- Selecting a layer swaps only the settings column and row highlight: 4 ms with 60 layers (was 263 ms).
+- A new selection reopens a collapsed settings panel; "Size and timing" keeps its collapsed state.
+- One dialog per title; dialogs focus their first footer button (Cancel) when the body has nothing to focus; big-export title is now a question.
+- Export Cancel lives in a fixed row, takes focus while rendering, is disabled during encoding, and focus returns to the export button; progress is announced in a polite status line.
+- Removing a stop, palette colour or shadow keeps focus on the neighbouring remove button (or Add); stop arrow keys commit once after a pause and re-sort.
+- Shadow controls are named per row; colour-field alpha is "<field> opacity"; panel counts update live.
+- Drag: stops cleanly if the list is redrawn, Escape / lost pointer / window blur cancel, top auto-scroll zone starts below the sticky header.
+- Import corrections show in their own toast that stays up longer for longer text; error copy uses "Couldn’t …"; curly apostrophes; clearer angle wording.
+- Panel keys per mode; toggles have aria-controls, a full-title tooltip, hover and press feedback; settings title follows renames; collapse-all disables when there are no groups; collapsed Preview stops drawing.
+- Palette shares always total 100 %; palette colours capped at 24; Add stop disabled at 32.
+- Phones: palette rows keep swatch and hex on one line (share and opacity move under the strength). Mouse devices: row tools appear on hover, focus or selection so names have room.
+- Headings: a visually hidden h1, h3 library categories; closed popovers drop aria-controls; unlabelled selects no longer get an empty aria-label; mode switch doesn't rebuild when the mode is unchanged; Undo hands focus to Redo (or Presets) when it disables itself.
+- Reduced motion covers chevrons and row shifts; duplicate CSS rules merged; picture layers' images now load when a project is opened (they were skipped before).

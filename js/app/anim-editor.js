@@ -18,6 +18,37 @@
     return item ? { kind: s.kind, item, list } : null;
   };
 
+  let lastSettingsId = null;
+  const titleOf = (kind, def, item) => (kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name);
+
+  // Selecting only swaps the settings column and the row highlight: no full editor rebuild,
+  // so it stays instant with dozens of layers.
+  function selectItem(kind, id) {
+    if (A.state.sel && A.state.sel.id === id) return;
+    A.state.sel = { kind, id };
+    for (const row of document.querySelectorAll('#editor .item')) {
+      const on = row.dataset.id === id;
+      row.classList.toggle('sel', on);
+      const nb = row.querySelector('.name'); if (nb) { if (on) nb.setAttribute('aria-current', 'true'); else nb.removeAttribute('aria-current'); }
+    }
+    const col = $('.settings-col'), s = findSel();
+    if (col) col.replaceChildren(s ? settingsPanel(s) : emptySettings());
+    A.save();
+  }
+  const emptySettings = () => panel('Settings', [h('div', { class: 'empty' }, icon('layers'), h('span', null, 'Select a layer or effect to change it.'))], [], { key: 'settings-empty' });
+  // keep every place that shows an item's name in step while it is renamed
+  function syncNames(item) {
+    const s = findSel();
+    const row = $(`#editor [data-id="${item.id}"]`);
+    const nb = row && row.querySelector('button.name'); if (nb) nb.textContent = item.name;
+    const g = row && row.querySelector('.grip'); if (g) g.setAttribute('aria-label', 'Move ' + item.name);
+    if (s && s.item === item) {
+      const def = s.kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
+      const t = $('#settingsPanel .ptoggle span'); if (t) t.textContent = titleOf(s.kind, def, item);
+      const tg = $('#settingsPanel .ptoggle'); if (tg) tg.dataset.tip = titleOf(s.kind, def, item);
+    }
+  }
+
   function renderAnimEditor(root) {
     const d = A.state.anim;
     if (!findSel()) A.state.sel = d.layers.length ? { kind: 'layer', id: d.layers[d.layers.length - 1].id } : d.effects.length ? { kind: 'effect', id: d.effects[0].id } : null;
@@ -28,7 +59,7 @@
     // layers list (top layer first)
     const layerList = h('div', { class: 'list', role: 'list', 'aria-label': 'Layers, top first' });
     const items = [...d.layers].reverse();
-    if (!items.length) layerList.append(h('div', { class: 'empty' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
+    if (!items.length) layerList.append(h('div', { class: 'empty', role: 'listitem' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
     for (const l of items) layerList.append(listItem(l, 'layer', d.layers));
     sortable(layerList, (from, to, kb) => {
       const n = d.layers.length, a = n - 1 - from, b = n - 1 - to;
@@ -41,7 +72,7 @@
       btn('Add element', () => A.openLibrary('layer', 'Scene elements'), 'ghost small', 'sparkles'))], [], { count: d.layers.length }));
 
     const fxList = h('div', { class: 'list', role: 'list', 'aria-label': 'Effects, applied top to bottom' });
-    if (!d.effects.length) fxList.append(h('div', { class: 'empty' }, icon('fx'), h('span', null, 'Effects run on the finished image, top to bottom: lighting, 3D, distortion, colour.')));
+    if (!d.effects.length) fxList.append(h('div', { class: 'empty', role: 'listitem' }, icon('fx'), h('span', null, 'Effects run on the finished image, top to bottom: lighting, 3D, distortion, colour.')));
     for (const e of d.effects) fxList.append(listItem(e, 'effect', d.effects));
     sortable(fxList, (from, to, kb) => {
       const [it] = d.effects.splice(from, 1); d.effects.splice(to, 0, it);
@@ -53,7 +84,7 @@
     colA.append(A.shadowsPanel(d.shadows));
 
     const s = findSel();
-    colB.append(s ? settingsPanel(s) : panel('Settings', [h('div', { class: 'empty' }, icon('layers'), h('span', null, 'Select a layer or effect to change it.'))]));
+    colB.append(s ? settingsPanel(s) : emptySettings());
     scheduleThumbs(true);
   }
 
@@ -74,7 +105,7 @@
         labeled('Frames per second', seg(FPS, d.fps, (v) => { d.fps = v; setInfo(); A.changed(true); }, 'Frames per second')),
         slider('Loop length', d.duration, { min: 0.4, max: 8, step: 0.1, unit: 's', onInput: (v) => { d.duration = v; setInfo(); A.changed(false); }, onCommit: () => A.commit() }),
         info,
-      ], { open: true }),
+      ]),
       group('Recolour everything', A.tweakControls(d.tweak, 'Shifts the colours of the whole paint, after all layers and effects.')),
     ]);
   }
@@ -84,14 +115,20 @@
     const def = kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
     const thumb = h('canvas', { class: 'thumb', width: 88, height: 22, 'data-thumb': item.id, 'aria-hidden': 'true' });
     const idx = list.indexOf(item);
-    const select_ = () => { if (!(A.state.sel && A.state.sel.id === item.id)) { A.state.sel = { kind, id: item.id }; A.renderEditor(); } };
+    const select_ = () => selectItem(kind, item.id);
     // the name is the row's real control: a named button that selects (Enter or Space), F2 or double-click renames, Delete removes
     const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-current': isSel ? 'true' : null, 'aria-describedby': null, onclick: () => select_() }, item.name || def.name);
     nameEl.addEventListener('dblclick', () => {
       const inp = h('input', { class: 'field rename', value: item.name || def.name, maxlength: 64, 'aria-label': 'Rename' });
       let finished = false;
-      const done = (ok) => { if (finished) return; finished = true; if (ok && inp.value.trim()) { item.name = inp.value.trim(); A.changed(true); } A.renderEditor(); A.focusItem(item.id); };
-      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); e.stopPropagation(); });
+      // commits in place (no re-render), so a click that ended the rename still lands where it was aimed
+      const done = (ok, byKey) => {
+        if (finished) return; finished = true;
+        if (ok && inp.value.trim()) { item.name = inp.value.trim(); nameEl.textContent = item.name; A.changed(true); syncNames(item); }
+        inp.replaceWith(nameEl);
+        if (byKey) nameEl.focus();
+      };
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); done(true, true); } if (e.key === 'Escape') { e.preventDefault(); done(false, true); } e.stopPropagation(); });
       inp.addEventListener('blur', () => done(true));
       nameEl.replaceWith(inp); inp.focus(); inp.select();
     });
@@ -141,7 +178,7 @@
         const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', class: 'sr-only', onchange: async () => {
           const f = file.files[0]; if (!f) return;
           try { params[pd.k] = await fileToDataUrl(f, 512); await cacheImage(params[pd.k]); onCommit(); A.renderEditor(); }
-          catch (e) { toast('Could not read that image.', 'error'); }
+          catch (e) { toast('Couldn’t read that image. Try a PNG, JPG or WebP file.', 'error'); }
         } });
         return labeled(pd.l, h('div', { class: 'row' }, h('label', { class: 'btn secondary small' }, icon('image'), v ? 'Replace image' : 'Choose image', file),
           h('span', { class: 'hint' }, v ? 'Stored in this project (max 512 px).' : 'PNG, JPG or WebP. You can also drop a file anywhere on the page.')));
@@ -160,7 +197,7 @@
     let vis = visibleKeys(def, item.params);
     const refreshIfNeeded = () => { const nv = visibleKeys(def, item.params); if (nv !== vis) { vis = nv; const old = $('#settingsPanel'); if (old) { const fd = A.focusDescriptor(); old.replaceWith(settingsPanel(s)); A.restoreFocus(fd); } } };
     const onInput = () => A.changed(false), onCommit = () => { A.changed(true); refreshIfNeeded(); };
-    const nameIn = h('input', { class: 'field', value: item.name || def.name, 'aria-label': 'Name', 'data-sel-first': '', oninput: () => { item.name = nameIn.value; const n = $(`[data-id="${item.id}"] .name`); if (n) n.textContent = item.name; A.changed(false); }, onchange: () => A.commit() });
+    const nameIn = h('input', { class: 'field', value: item.name || def.name, maxlength: 64, 'aria-label': 'Name', 'data-sel-first': '', oninput: () => { item.name = nameIn.value; syncNames(item); A.changed(false); }, onchange: () => A.commit() });
     const top = [h('p', { class: 'hint' }, def.desc), labeled('Name', nameIn)];
     if (kind === 'layer') {
       top.push(h('div', { class: 'split' },
@@ -196,7 +233,7 @@
       body.push(group('Colour tweaks', A.tweakControls(item.tweak, 'Shift the colours of just this layer.')));
     }
     const hasXY = def.params.some((pd) => pd.k === 'x') || def.params.some((pd) => pd.k === 'cx' && /^Centre/.test(pd.l));
-    if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it.'));
+    if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it, or use the X and Y sliders below.'));
     const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); A.renderEditor(); A.changed(true); }, { cls: 'sm' });
     const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); A.state.sel = { kind, id: c.id }; A.renderEditor(); A.changed(true); }, { cls: 'sm' });
     // One toggle: collapses every group while any is open, expands them all once all are closed.
@@ -211,8 +248,11 @@
       const label = anyOpen() ? 'Collapse all groups' : 'Expand all groups';
       toggleAll.replaceChildren(icon(anyOpen() ? 'collapse' : 'expand'));
       toggleAll.setAttribute('aria-label', label); toggleAll.dataset.tip = label;
+      toggleAll.disabled = !heads().length;
     };
-    const sec = panel((kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name), body, [toggleAll, dup, reset], { id: 'settingsPanel', key: 'settings' });
+    // a new selection always opens the settings panel, even if it was collapsed for the previous one
+    const fresh = lastSettingsId !== item.id; lastSettingsId = item.id;
+    const sec = panel(titleOf(kind, def, item), body, [toggleAll, dup, reset], { id: 'settingsPanel', key: 'settings', open: fresh || undefined });
     sec.addEventListener('click', (e) => { if (e.target.closest('.ghead')) syncToggle(); }); // single groups change it too
     syncToggle();
     return sec;
@@ -241,7 +281,7 @@
     PL.imageCache[src] = { w: im.width, h: im.height, data: ctx.getImageData(0, 0, im.width, im.height).data };
   }
   async function cacheDocImages(doc) {
-    const srcs = doc.layers.filter((l) => l.type === 'image' && l.params.src).map((l) => l.params.src);
+    const srcs = doc.layers.filter((l) => (l.type === 'image' || l.type === 'sprite') && l.params.src).map((l) => l.params.src);
     await Promise.all(srcs.map((s) => cacheImage(s).catch(() => {})));
     if (srcs.length) { A.rt.dirty = true; scheduleThumbs(true); }
   }

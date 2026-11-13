@@ -146,8 +146,6 @@ input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 @container (max-width: 400px) { .stoprow { grid-template-columns: 20px auto 1fr auto; } .stoprow .alpha { grid-column: 3; } }
 
 /* shadows */
-.shadow-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--border); }
-.shadow-row .color { grid-column: 1 / 4; }
 
 /* ---------- layers ---------- */
 .list { display: flex; flex-direction: column; border: 1px solid var(--border); }
@@ -169,9 +167,8 @@ input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 .stagebox.light { background: var(--chat-light); color: var(--chat-light-text); }
 .stagebox.checker { background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 16px 16px; }
 .pname { font-family: var(--name-font); font-weight: 700; line-height: 1.2; white-space: nowrap; max-width: 100%; }
-canvas.pname { max-width: none; flex: none; }
 .painted { background-color: currentcolor; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-canvas.pname { display: block; }
+canvas.pname { display: block; max-width: none; flex: none; }
 .chat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, currentcolor 12%, transparent); }
 .chat .msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat .ts { opacity: .6; margin-right: 6px; font-variant-numeric: tabular-nums; }
@@ -259,7 +256,7 @@ textarea.code:focus-visible { border-color: var(--focus-ring); box-shadow: 0 0 0
 .sorting { user-select: none; }
 .item .grip { margin-left: -4px; }
 .rename { height: 26px; padding: 0 6px; flex: 1; min-width: 0; }
-.shadow-row { grid-template-columns: auto repeat(3, minmax(0, 1fr)) auto; background: var(--surface); }
+.shadow-row { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
 .shadow-row .color { grid-column: 2 / 5; }
 
 /* collapsible groups */
@@ -395,4 +392,26 @@ input[type='range']::-moz-range-track { background: var(--control-border); }
   .topbar-tools { gap: 4px; }
   .topbar-tools .btn.small { padding: 0 8px; }
   #presetsBtn { padding: 0 9px; }
+}
+/* ---------- uitest pass 2 ---------- */
+h3.label { margin: 0; }
+/* panel toggles: press and hover feedback like the group heads */
+.ptoggle:active { opacity: .6; transition: none; }
+@media (hover: hover) and (pointer: fine) { .ptoggle:hover span { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; } }
+/* layer rows: on mouse devices the row tools appear on hover, focus or selection, so names get the room */
+@media (hover: hover) and (pointer: fine) {
+  .item .tools { display: none; }
+  .item:hover .tools, .item:focus-within .tools, .item.sel .tools { display: flex; }
+  .item:hover .meta, .item:focus-within .meta { display: none; }
+}
+/* palette rows in narrow panels (phones): colour on the first line, share and opacity with the strength */
+@container (max-width: 380px) {
+  .prow { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'g c d' '. t t' '. s a'; }
+  .prow > .share { text-align: left; }
+  .prow > .numwrap { justify-self: end; }
+  .prow .color { flex-wrap: nowrap; }
+  .prow .hex { width: auto; flex: 1; min-width: 64px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ptoggle svg, .ghead svg, .sortable-item { transition: none; }
 }
