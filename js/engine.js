@@ -113,10 +113,7 @@
   function compileTweak(tw) {
     tw = Object.assign({}, DEFAULT_TWEAK, tw || {});
     if (!tw.hue && tw.sat === 1 && !tw.bright && tw.contrast === 1 && !tw.tintAmt) return null;
-    const a = (tw.hue * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
-    const m = [0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.928,
-      0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.14, 0.072 - c * 0.072 - s * 0.283,
-      0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072];
+    const m = PL.fx.hueMatrix(tw.hue);
     const tint = PL.hexToRgb(tw.tint).map((x) => x / 255);
     return (o) => {
       let r = o[0], g = o[1], b = o[2];

@@ -6,6 +6,7 @@
 (function (PL) {
   'use strict';
   const { TAU, clamp, fract, mix, smoothstep, tri, wrap, hexToRgb, lutAt, hash2, vnoise, fbm, ridged, hslToRgb, rgbToHsl, luma } = PL;
+  const { rgb01, colorPrep, eachPx, bilinear, remap, boxBlur, hueMatrix } = PL.fx;
 
   // ---------- palettes ----------
   const S = (...pairs) => pairs.map(([at, color, a = 1]) => ({ at, color, a }));
@@ -60,12 +61,10 @@
   const LAYERS = {}, EFFECTS = {};
   const layer = (id, def) => { def.id = id; LAYERS[id] = def; };
   const effect = (id, def) => { def.id = id; EFFECTS[id] = def; };
-  const rgb01 = (hex) => hexToRgb(hex).map((x) => x / 255);
   const setC = (o, c, a) => { o[0] = c[0]; o[1] = c[1]; o[2] = c[2]; o[3] = a; return o; };
   const mixC = (o, a, b, f, alpha = 1) => { o[0] = mix(a[0], b[0], f); o[1] = mix(a[1], b[1], f); o[2] = mix(a[2], b[2], f); o[3] = alpha; return o; };
   const proj = (u, v, deg, A = 1) => { const r = (deg * Math.PI) / 180, dx = Math.sin(r), dy = -Math.cos(r); return ((u - 0.5) * A * dx + (v - 0.5) * dy) / (Math.abs(dx) * A + Math.abs(dy)) + 0.5; };
   const wrapF = (f, doWrap, mirror) => (mirror ? tri(f) : doWrap ? fract(f) : clamp(f));
-  const colorPrep = (keys) => (p) => { for (const k of keys) p['_' + k] = rgb01(p[k]); };
 
   // =====================================================================================
   // Gradients
@@ -199,12 +198,13 @@
   // =====================================================================================
   // Noise and fluids
   // =====================================================================================
-  const flowXY = (t, p) => { const a = TAU * t * p.speed; return [Math.cos(a) * p.flow, Math.sin(a) * p.flow]; };
+  // Per-frame churn offset, cached on p (t is constant for a whole frame): read p._fx, p._fy afterwards.
+  const flowXY = (t, p) => { if (p._ft !== t) { const a = TAU * t * p.speed; p._ft = t; p._fx = Math.cos(a) * p.flow; p._fy = Math.sin(a) * p.flow; } };
   layer('clouds', {
     name: 'Clouds', cat: 'Noise and fluids', desc: 'Soft fractal noise that drifts and churns.',
     params: [P.pal('galaxy'), P.int('sx', 'Scale x', 1, 32, 8), P.int('sy', 'Scale y', 1, 16, 2), P.int('oct', 'Detail', 1, 6, 4), P.range('contrast', 'Contrast', 0.2, 4, 0.05, 1.4), P.range('flow', 'Churn', 0, 3, 0.05, 0.8), P.speed(1), P.speed(0, 'drift', 'Drift'), P.seed(1)],
     sample(u, v, t, p, o, c) {
-      const [ox, oy] = flowXY(t, p);
+      flowXY(t, p); const ox = p._fx, oy = p._fy;
       const n = fbm((u - t * p.drift) * p.sx + ox, v * p.sy + oy, p.sx, p.sy, p.oct, p.seed);
       return lutAt(p._stops, clamp((n - 0.5) * p.contrast + 0.5), o);
     },
@@ -213,7 +213,7 @@
     name: 'Smoke', cat: 'Noise and fluids', desc: 'Ridged noise: wisps, veins and electric threads.',
     params: [P.pal('mono'), P.int('sx', 'Scale x', 1, 32, 6), P.int('sy', 'Scale y', 1, 16, 2), P.int('oct', 'Detail', 1, 6, 4), P.range('contrast', 'Contrast', 0.2, 4, 0.05, 1.6), P.range('flow', 'Churn', 0, 3, 0.05, 0.7), P.speed(1), P.speed(1, 'drift', 'Drift'), P.seed(7)],
     sample(u, v, t, p, o, c) {
-      const [ox, oy] = flowXY(t, p);
+      flowXY(t, p); const ox = p._fx, oy = p._fy;
       const n = ridged((u - t * p.drift) * p.sx + ox, v * p.sy + oy, p.sx, p.sy, p.oct, p.seed);
       return lutAt(p._stops, clamp((n - 0.5) * p.contrast + 0.5), o);
     },
@@ -231,7 +231,7 @@
     name: 'Marble', cat: 'Noise and fluids', desc: 'Veined stone, gently flowing.',
     params: [P.pal([{ at: 0, color: '#f4f1ea' }, { at: 0.6, color: '#d8d2c6' }, { at: 0.85, color: '#6b6355' }, { at: 1, color: '#1f1b16' }]), P.range('veins', 'Veins', 0.5, 12, 0.5, 3), P.range('turb', 'Turbulence', 0, 6, 0.1, 2.5), P.int('sx', 'Scale x', 1, 16, 4), P.int('sy', 'Scale y', 1, 8, 2), P.range('flow', 'Flow', 0, 2, 0.05, 0.5), P.speed(1), P.seed(3)],
     sample(u, v, t, p, o, c) {
-      const [ox, oy] = flowXY(t, p);
+      flowXY(t, p); const ox = p._fx, oy = p._fy;
       const n = fbm(u * p.sx + ox, v * p.sy + oy, p.sx, p.sy, 5, p.seed);
       return lutAt(p._stops, 0.5 + 0.5 * Math.sin(TAU * (u * p.veins + v * 0.5 + p.turb * n)), o);
     },
@@ -353,27 +353,40 @@
   layer('sparkles', {
     name: 'Sparkles', cat: 'Particles and light', desc: 'Twinkling four-point glints. Layer over anything.',
     params: [P.color('color', 'Colour', '#ffffff'), P.range('cell', 'Spacing (px)', 4, 60, 1, 14), P.range('density', 'Density', 0.02, 1, 0.01, 0.35), P.range('size', 'Size (px)', 0.5, 8, 0.1, 2.2), P.bool('rays', 'Star rays', true), P.int('twinkle', 'Twinkles per loop', 1, 8, 2), P.range('variety', 'Size variety', 0, 1, 0.01, 0.6), P.seed(12)],
-    prepare: colorPrep(['color']),
-    sample(u, v, t, p, o, c) {
-      const a = particles(u, v, p, c, p.cell, (dx, dy, h, h2) => {
-        const tw = Math.pow(Math.max(0, Math.sin(TAU * (t * p.twinkle + h2))), 3);
+    prepare(p) {
+      colorPrep(['color'])(p);
+      p._fn = (dx, dy, h, h2) => { // reads the frame time from p._t (set by sample, constant per frame)
+        const t = p._t, tw = Math.pow(Math.max(0, Math.sin(TAU * (t * p.twinkle + h2))), 3);
         return starShape(dx, dy, p.size * (1 - p.variety * h) * tw, p.rays) * tw;
-      });
+      };
+    },
+    sample(u, v, t, p, o, c) {
+      p._t = t;
+      const a = particles(u, v, p, c, p.cell, p._fn);
       return setC(o, p._color, clamp(a));
     },
   });
   layer('stars', {
     name: 'Starfield', cat: 'Particles and light', desc: 'Drifting stars at several depths.',
     params: [P.color('color', 'Colour', '#e8f0ff'), P.range('cell', 'Spacing (px)', 3, 40, 1, 9), P.range('density', 'Density', 0.02, 1, 0.01, 0.4), P.range('size', 'Size (px)', 0.3, 4, 0.1, 1.1), P.int('depth', 'Depth layers', 1, 3, 2), P.speed(1, 'speed', 'Drift'), P.int('twinkle', 'Twinkles per loop', 0, 8, 1), P.seed(21)],
-    prepare: colorPrep(['color']),
+    prepare(p) {
+      colorPrep(['color'])(p);
+      // per-depth seed/density holders and shape callbacks, built once (particles() reads only seed and density)
+      p._q = []; p._fns = [];
+      for (let l = 0; l < p.depth; l++) {
+        p._q.push({ seed: p.seed + l * 101, density: p.density });
+        p._fns.push((dx, dy, h, h2) => {
+          const t = p._t, tw = p.twinkle ? 0.55 + 0.45 * Math.sin(TAU * (t * p.twinkle + h2)) : 1;
+          return starShape(dx, dy, p.size * (0.6 + l * 0.35) * (0.5 + h), false) * tw * (0.5 + 0.5 * (l + 1) / p.depth);
+        });
+      }
+    },
     sample(u, v, t, p, o, c) {
       let a = 0;
+      p._t = t;
       for (let l = 0; l < p.depth; l++) {
-        const sp = p.speed * (l + 1), q = Object.assign({}, p, { seed: p.seed + l * 101, density: p.density });
-        a = Math.max(a, particles(fract(u - t * sp), v, q, c, p.cell * (1 + l * 0.6), (dx, dy, h, h2) => {
-          const tw = p.twinkle ? 0.55 + 0.45 * Math.sin(TAU * (t * p.twinkle + h2)) : 1;
-          return starShape(dx, dy, p.size * (0.6 + l * 0.35) * (0.5 + h), false) * tw * (0.5 + 0.5 * (l + 1) / p.depth);
-        }));
+        const sp = p.speed * (l + 1);
+        a = Math.max(a, particles(fract(u - t * sp), v, p._q[l], c, p.cell * (1 + l * 0.6), p._fns[l]));
       }
       return setC(o, p._color, clamp(a));
     },
@@ -381,20 +394,25 @@
   layer('particles', {
     name: 'Snow, rain, bubbles', cat: 'Particles and light', desc: 'Falling or rising particles.',
     params: [P.select('mode', 'Type', [['snow', 'Snow'], ['rain', 'Rain'], ['bubbles', 'Bubbles'], ['embers', 'Embers']], 'snow'), P.color('color', 'Colour', '#ffffff'), P.range('cell', 'Spacing (px)', 4, 60, 1, 12), P.range('density', 'Density', 0.02, 1, 0.01, 0.5), P.range('size', 'Size (px)', 0.5, 8, 0.1, 1.6), P.speed(1, 'speed', 'Fall speed', 1, 8), P.speed(0, 'wind', 'Wind'), P.seed(31)],
-    prepare: colorPrep(['color']),
-    sample(u, v, t, p, o, c) {
-      const up = p.mode === 'bubbles' || p.mode === 'embers';
-      const vv = fract(v + (up ? 1 : -1) * t * p.speed), uu = fract(u - t * p.wind);
-      const a = particles(uu, vv, p, c, p.cell, (dx, dy, h, h2) => {
+    prepare(p) {
+      colorPrep(['color'])(p);
+      p._fn = (dx, dy, h, h2) => {
         const s = p.size * (0.6 + 0.8 * h2);
         if (p.mode === 'rain') return Math.max(0, 1 - Math.abs(dx) / (s * 0.45)) * Math.max(0, 1 - Math.abs(dy) / (s * 4));
         if (p.mode === 'bubbles') { const d = Math.hypot(dx, dy); return Math.max(0, 1 - Math.abs(d - s * 1.6) / 0.9) * 0.9 + (d < s * 1.6 ? 0.12 : 0); }
         const m = Math.max(0, 1 - Math.hypot(dx, dy) / s);
-        return p.mode === 'embers' ? m * (0.5 + 0.5 * Math.sin(TAU * (t * 3 + h2))) : m;
-      });
+        return p.mode === 'embers' ? m * (0.5 + 0.5 * Math.sin(TAU * (p._t * 3 + h2))) : m;
+      };
+    },
+    sample(u, v, t, p, o, c) {
+      p._t = t;
+      const up = p.mode === 'bubbles' || p.mode === 'embers';
+      const vv = fract(v + (up ? 1 : -1) * t * p.speed), uu = fract(u - t * p.wind);
+      const a = particles(uu, vv, p, c, p.cell, p._fn);
       return setC(o, p._color, clamp(a));
     },
   });
+  const shineBand = (f, c0, w, soft) => { const d = Math.abs(f - c0); return 1 - smoothstep(w * (1 - soft), w + 1e-4, d); };
   layer('shine', {
     name: 'Shine sweep', cat: 'Particles and light', desc: 'A highlight band that sweeps across, then rests.',
     params: [P.color('color', 'Colour', '#ffffff'), P.range('angle', 'Angle', 0, 360, 1, 70), P.range('width', 'Width', 0.01, 0.6, 0.01, 0.12), P.range('soft', 'Softness', 0, 1, 0.01, 0.7), P.range('intensity', 'Intensity', 0, 1, 0.01, 0.85), P.int('sweeps', 'Sweeps per loop', 1, 6, 1), P.range('hold', 'Rest time', 0, 0.9, 0.01, 0.45), P.bool('double', 'Double band', false)],
@@ -403,9 +421,8 @@
       const f = proj(u, v, p.angle, c.A), local = fract(t * p.sweeps), act = 1 - p.hold;
       if (local >= act) return setC(o, p._color, 0);
       const cpos = mix(-p.width * 1.5, 1 + p.width * 1.5, local / act);
-      const band = (c0, w) => { const d = Math.abs(f - c0); return 1 - smoothstep(w * (1 - p.soft), w + 1e-4, d); };
-      let a = band(cpos, p.width);
-      if (p.double) a = Math.max(a, band(cpos - p.width * 2.2, p.width * 0.45) * 0.8);
+      let a = shineBand(f, cpos, p.width, p.soft);
+      if (p.double) a = Math.max(a, shineBand(f, cpos - p.width * 2.2, p.width * 0.45, p.soft) * 0.8);
       return setC(o, p._color, a * p.intensity);
     },
   });
@@ -473,7 +490,8 @@
       let hp = fract(u - t * p.speed) - 0.5;
       const h = Math.exp(-(hp * hp) / (p.hw * p.hw * 0.25)) * p.hi;
       const k = 1 - p.grain * 0.5 + p.grain * n * 0.8;
-      return setC(o, [clamp(p._color[0] * k + h), clamp(p._color[1] * k + h), clamp(p._color[2] * k + h)], 1);
+      o[0] = clamp(p._color[0] * k + h); o[1] = clamp(p._color[1] * k + h); o[2] = clamp(p._color[2] * k + h); o[3] = 1;
+      return o;
     },
   });
   layer('holo', {
@@ -516,7 +534,7 @@
     prepare(p) { p._img = PL.imageCache && PL.imageCache[p.src]; },
     sample(u, v, t, p, o, c) {
       const im = p._img;
-      if (!im) return setC(o, [0, 0, 0], 0);
+      if (!im) { o[0] = 0; o[1] = 0; o[2] = 0; o[3] = 0; return o; }
       const x = fract(u * p.tx - t * p.sx) * im.w, y = fract(v * p.ty - t * p.sy) * im.h;
       const i = ((Math.min(im.h - 1, y | 0) * im.w) + Math.min(im.w - 1, x | 0)) * 4, d = im.data;
       o[0] = d[i] / 255; o[1] = d[i + 1] / 255; o[2] = d[i + 2] / 255; o[3] = d[i + 3] / 255;
@@ -527,55 +545,6 @@
   // =====================================================================================
   // Effects (post-processing on the composited image)
   // =====================================================================================
-  function bilinear(buf, W, H, x, y, out, wrapEdges = true) {
-    x -= 0.5; y -= 0.5;
-    let x0 = Math.floor(x), y0 = Math.floor(y); const fx = x - x0, fy = y - y0;
-    const X = (i) => (wrapEdges ? wrap(i, W) : Math.max(0, Math.min(W - 1, i))), Y = (i) => (wrapEdges ? wrap(i, H) : Math.max(0, Math.min(H - 1, i)));
-    const a = (Y(y0) * W + X(x0)) * 4, b = (Y(y0) * W + X(x0 + 1)) * 4, c = (Y(y0 + 1) * W + X(x0)) * 4, d = (Y(y0 + 1) * W + X(x0 + 1)) * 4;
-    for (let k = 0; k < 4; k++) out[k] = mix(mix(buf[a + k], buf[b + k], fx), mix(buf[c + k], buf[d + k], fx), fy);
-    return out;
-  }
-  function remap(buf, W, H, fn) { // fn(x, y) -> [sx, sy] in pixels
-    const out = new Float32Array(buf.length), o = [0, 0, 0, 0];
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const s = fn(x + 0.5, y + 0.5);
-      bilinear(buf, W, H, s[0], s[1], o);
-      const i = (y * W + x) * 4; out[i] = o[0]; out[i + 1] = o[1]; out[i + 2] = o[2]; out[i + 3] = o[3];
-    }
-    return out;
-  }
-  function boxBlur(buf, W, H, r) {
-    if (r < 1) return buf;
-    r = Math.round(r);
-    let src = buf, tmp = new Float32Array(buf.length);
-    for (let pass = 0; pass < 2; pass++) {
-      // horizontal (premultiplied so transparent pixels don't darken edges)
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-        for (let k = -r; k <= r; k++) { const i = (y * W + wrap(x + k, W)) * 4, a = src[i + 3]; s0 += src[i] * a; s1 += src[i + 1] * a; s2 += src[i + 2] * a; s3 += a; }
-        const n = 2 * r + 1, j = (y * W + x) * 4;
-        tmp[j] = s0 / n; tmp[j + 1] = s1 / n; tmp[j + 2] = s2 / n; tmp[j + 3] = s3 / n;
-      }
-      const out = new Float32Array(buf.length);
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-        for (let k = -r; k <= r; k++) { const i = (Math.max(0, Math.min(H - 1, y + k)) * W + x) * 4; s0 += tmp[i]; s1 += tmp[i + 1]; s2 += tmp[i + 2]; s3 += tmp[i + 3]; }
-        const n = 2 * r + 1, j = (y * W + x) * 4, a = s3 / n;
-        out[j] = a > 0 ? s0 / n / a : 0; out[j + 1] = a > 0 ? s1 / n / a : 0; out[j + 2] = a > 0 ? s2 / n / a : 0; out[j + 3] = a;
-      }
-      src = out;
-      r = Math.max(1, Math.round(r * 0.6));
-    }
-    return src;
-  }
-  const eachPx = (buf, W, H, fn) => { for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i += 4) fn(i, (x + 0.5) / W, (y + 0.5) / H, x, y); return buf; };
-
-  function hueMatrix(deg) {
-    const a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
-    return [0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.928,
-      0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.14, 0.072 - c * 0.072 - s * 0.283,
-      0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072];
-  }
   effect('hue', {
     name: 'Hue shift', cat: 'Colour', desc: 'Rotates every colour round the wheel; cycles make it loop.',
     params: [P.range('deg', 'Shift (degrees)', -180, 180, 1, 0), P.speed(1, 'cycles', 'Full turns per loop')],
@@ -671,8 +640,8 @@
       }
       const a = ((p.angle + 360 * p.spin * t) * Math.PI) / 180, lx = Math.cos(a), ly = -Math.sin(a), lz = 0.6;
       const ln = Math.hypot(lx, ly, lz);
+      const h = (xx, yy) => hb[wrap(yy, H) * W + wrap(xx, W)];
       return eachPx(buf, W, H, (i, u, v, x, y) => {
-        const h = (xx, yy) => hb[wrap(yy, H) * W + wrap(xx, W)];
         const nx = (h(x - 1, y) - h(x + 1, y)) * p.depth, ny = (h(x, y - 1) - h(x, y + 1)) * p.depth;
         const nl = Math.hypot(nx, ny, 1);
         const d = (nx * lx + ny * -ly + lz) / (nl * ln) - lz / ln;
@@ -732,9 +701,10 @@
     name: 'Wave distort', cat: 'Distortion', desc: 'Ripples the image sideways or up and down.',
     params: [P.select('axis', 'Shift', [['x', 'Sideways'], ['y', 'Up and down']], 'y'), P.range('amp', 'Amplitude (px)', 0, 20, 0.1, 3), P.int('freq', 'Waves', 1, 16, 3), P.speed(1)],
     run(buf, W, H, t, p) {
-      return remap(buf, W, H, (x, y) => p.axis === 'x'
-        ? [x + p.amp * Math.sin(TAU * ((y / H) * p.freq - t * p.speed)), y]
-        : [x, y + p.amp * Math.sin(TAU * ((x / W) * p.freq - t * p.speed))]);
+      return remap(buf, W, H, (x, y, s) => {
+        if (p.axis === 'x') { s[0] = x + p.amp * Math.sin(TAU * ((y / H) * p.freq - t * p.speed)); s[1] = y; }
+        else { s[0] = x; s[1] = y + p.amp * Math.sin(TAU * ((x / W) * p.freq - t * p.speed)); }
+      });
     },
   });
   effect('swirl', {
@@ -742,10 +712,10 @@
     params: [P.range('strength', 'Strength (turns)', -2, 2, 0.01, 0.5), P.range('radius', 'Radius', 0.05, 1.5, 0.01, 0.6), P.range('cx', 'Centre x', 0, 1, 0.01, 0.5), P.range('cy', 'Centre y', 0, 1, 0.01, 0.5), P.speed(1, 'speed', 'Wobbles per loop', 0, 8)],
     run(buf, W, H, t, p) {
       const s = p.strength * (p.speed ? Math.sin(TAU * t * p.speed) : 1), R = p.radius * H;
-      return remap(buf, W, H, (x, y) => {
+      return remap(buf, W, H, (x, y, out) => {
         const dx = x - p.cx * W, dy = y - p.cy * H, d = Math.hypot(dx, dy);
         const k = Math.max(0, 1 - d / R), a = s * TAU * k * k, c = Math.cos(a), sn = Math.sin(a);
-        return [p.cx * W + dx * c - dy * sn, p.cy * H + dx * sn + dy * c];
+        out[0] = p.cx * W + dx * c - dy * sn; out[1] = p.cy * H + dx * sn + dy * c;
       });
     },
   });
@@ -755,18 +725,18 @@
     run(buf, W, H, t, p) {
       if (p.mode === 'kaleido') {
         const seg = TAU / p.segments, cx = W / 2, cy = H / 2;
-        return remap(buf, W, H, (x, y) => {
+        return remap(buf, W, H, (x, y, s) => {
           const dx = x - cx, dy = y - cy;
           let a = Math.atan2(dy, dx) + TAU * t * p.spin;
           a = ((a % seg) + seg) % seg; if (a > seg / 2) a = seg - a;
           const r = Math.hypot(dx, dy);
-          return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+          s[0] = cx + Math.cos(a) * r; s[1] = cy + Math.sin(a) * r;
         });
       }
-      return remap(buf, W, H, (x, y) => [
-        p.mode === 'x' || p.mode === 'quad' ? (x > W / 2 ? W - x : x) : x,
-        p.mode === 'y' || p.mode === 'quad' ? (y > H / 2 ? H - y : y) : y,
-      ]);
+      return remap(buf, W, H, (x, y, s) => {
+        s[0] = p.mode === 'x' || p.mode === 'quad' ? (x > W / 2 ? W - x : x) : x;
+        s[1] = p.mode === 'y' || p.mode === 'quad' ? (y > H / 2 ? H - y : y) : y;
+      });
     },
   });
   effect('pixelate', {

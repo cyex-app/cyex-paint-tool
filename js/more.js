@@ -5,25 +5,9 @@
   const P = PL.P;
   const layer = (id, def) => { def.id = id; PL.LAYERS[id] = def; };
   const effect = (id, def) => { def.id = id; PL.EFFECTS[id] = def; };
-  const rgb01 = (hex) => hexToRgb(hex).map((x) => x / 255);
-  const colorPrep = (keys) => (p) => { for (const k of keys) p['_' + k] = rgb01(p[k]); };
-  const eachPx = (buf, W, H, fn) => { for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i += 4) fn(i, (x + 0.5) / W, (y + 0.5) / H, x, y); return buf; };
-  function bilinear(buf, W, H, x, y, out) {
-    x -= 0.5; y -= 0.5;
-    const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
-    const a = (wrap(y0, H) * W + wrap(x0, W)) * 4, b = (wrap(y0, H) * W + wrap(x0 + 1, W)) * 4, c = (wrap(y0 + 1, H) * W + wrap(x0, W)) * 4, d = (wrap(y0 + 1, H) * W + wrap(x0 + 1, W)) * 4;
-    for (let k = 0; k < 4; k++) out[k] = mix(mix(buf[a + k], buf[b + k], fx), mix(buf[c + k], buf[d + k], fx), fy);
-    return out;
-  }
-  function remap(buf, W, H, fn) {
-    const out = new Float32Array(buf.length), o = [0, 0, 0, 0];
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const s = fn(x + 0.5, y + 0.5); bilinear(buf, W, H, s[0], s[1], o);
-      const i = (y * W + x) * 4; out[i] = o[0]; out[i + 1] = o[1]; out[i + 2] = o[2]; out[i + 3] = o[3];
-    }
-    return out;
-  }
-  const flow = (t, p) => { const a = TAU * t * p.speed; return [Math.cos(a) * p.flow, Math.sin(a) * p.flow]; };
+  const { rgb01, colorPrep, eachPx, bilinear, remap } = PL.fx;
+  // Per-frame churn offset, cached on p (t is constant for a whole frame): read p._fx, p._fy afterwards.
+  const flow = (t, p) => { if (p._ft !== t) { const a = TAU * t * p.speed; p._ft = t; p._fx = Math.cos(a) * p.flow; p._fy = Math.sin(a) * p.flow; } };
 
   // =====================================================================================
   // Layers
@@ -52,7 +36,7 @@
     name: 'Silk', cat: 'Noise and fluids', desc: 'Folded, flowing fabric made from warped noise.',
     params: [P.pal('dusk'), P.int('sx', 'Scale x', 1, 16, 4), P.int('sy', 'Scale y', 1, 8, 1), P.range('warp', 'Warp', 0, 4, 0.05, 1.8), P.range('flow', 'Flow', 0, 2, 0.05, 0.6), P.speed(1), P.range('sheen', 'Sheen', 0, 1, 0.01, 0.4), P.seed(23)],
     sample(u, v, t, p, o) {
-      const [ox, oy] = flow(t, p);
+      flow(t, p); const ox = p._fx, oy = p._fy;
       const q = fbm(u * p.sx + ox, v * p.sy + oy, p.sx, p.sy, 3, p.seed);
       const n = fbm(u * p.sx + p.warp * q, v * p.sy + p.warp * q * 0.7 - oy, p.sx, p.sy, 4, p.seed + 5);
       lutAt(p._stops, clamp(n * 1.3 - 0.15), o);
@@ -134,8 +118,9 @@
   layer('plaid', {
     name: 'Plaid', cat: 'Patterns', desc: 'Woven tartan of crossing colour stripes.',
     params: [P.pal('blood'), P.int('cols', 'Stripes across', 1, 24, 6), P.int('rows', 'Stripes down', 1, 12, 2), P.range('mix', 'Weave mix', 0, 1, 0.01, 0.5), P.speed(1, 'sx', 'Scroll'), P.bool('weave', 'Fine weave lines', true)],
+    prepare(p) { p._pa = [0, 0, 0, 0]; p._pb = [0, 0, 0, 0]; },
     sample(u, v, t, p, o, c) {
-      const a = [0, 0, 0, 0], b = [0, 0, 0, 0];
+      const a = p._pa, b = p._pb;
       lutAt(p._stops, fract(u * p.cols - t * p.sx), a); lutAt(p._stops, fract(v * p.rows), b);
       let m = p.mix;
       if (p.weave) { const X = Math.floor(u * c.W), Y = Math.floor(v * c.H); m = ((X + Y) & 3) < 2 ? clamp(m + 0.2) : clamp(m - 0.2); }
@@ -147,7 +132,7 @@
     name: 'Liquid metal', cat: 'Materials', desc: 'Molten chrome that ripples and reflects.',
     params: [P.stops('chrome'), P.int('sx', 'Scale x', 1, 16, 4), P.int('sy', 'Scale y', 1, 8, 2), P.range('warp', 'Melt', 0, 1.5, 0.01, 0.6), P.range('flow', 'Flow', 0, 2, 0.05, 0.7), P.speed(1), P.seed(53)],
     sample(u, v, t, p, o) {
-      const [ox, oy] = flow(t, p);
+      flow(t, p); const ox = p._fx, oy = p._fy;
       const n = fbm(u * p.sx + ox, v * p.sy + oy, p.sx, p.sy, 4, p.seed);
       return lutAt(p._stops, clamp(v + (n - 0.5) * p.warp * 1.6), o);
     },
@@ -157,7 +142,7 @@
     params: [P.pal('mint'), P.color('lineColor', 'Line colour', '#e6fff4'), P.int('levels', 'Lines', 2, 40, 12), P.range('width', 'Line width', 0.01, 0.5, 0.01, 0.12), P.int('sx', 'Scale x', 1, 16, 4), P.int('sy', 'Scale y', 1, 8, 2), P.range('flow', 'Flow', 0, 2, 0.05, 0.5), P.speed(1), P.seed(61)],
     prepare: colorPrep(['lineColor']),
     sample(u, v, t, p, o) {
-      const [ox, oy] = flow(t, p);
+      flow(t, p); const ox = p._fx, oy = p._fy;
       const n = fbm(u * p.sx + ox, v * p.sy + oy, p.sx, p.sy, 4, p.seed);
       lutAt(p._stops, n, o);
       const g = fract(n * p.levels), d = Math.min(g, 1 - g);
@@ -186,10 +171,10 @@
     name: 'Ripple', cat: 'Distortion', desc: 'Circular water ripples spreading from a point.',
     params: [P.range('cx', 'Centre x', 0, 1, 0.01, 0.5), P.range('cy', 'Centre y', 0, 1, 0.01, 0.5), P.int('waves', 'Rings', 1, 30, 8), P.range('amp', 'Strength (px)', 0, 10, 0.1, 2), P.speed(1)],
     run(buf, W, H, t, p) {
-      return remap(buf, W, H, (x, y) => {
+      return remap(buf, W, H, (x, y, s) => {
         const dx = x - p.cx * W, dy = y - p.cy * H, d = Math.hypot(dx, dy) + 1e-3;
         const k = p.amp * Math.sin(TAU * ((d / H) * p.waves * 0.5 - t * p.speed));
-        return [x + (dx / d) * k, y + (dy / d) * k];
+        s[0] = x + (dx / d) * k; s[1] = y + (dy / d) * k;
       });
     },
   });
@@ -198,11 +183,11 @@
     params: [P.range('cx', 'Centre x', 0, 1, 0.01, 0.5), P.range('cy', 'Centre y', 0, 1, 0.01, 0.5), P.range('radius', 'Radius', 0.1, 3, 0.01, 0.8), P.range('strength', 'Strength', -1, 1, 0.01, 0.5), P.speed(0, 'speed', 'Breaths per loop')],
     run(buf, W, H, t, p) {
       const s = p.strength * (p.speed ? Math.sin(TAU * t * p.speed) : 1), R = p.radius * H * 0.5;
-      return remap(buf, W, H, (x, y) => {
+      return remap(buf, W, H, (x, y, out) => {
         const dx = x - p.cx * W, dy = y - p.cy * H, d = Math.hypot(dx, dy);
-        if (d >= R) return [x, y];
+        if (d >= R) { out[0] = x; out[1] = y; return; }
         const k = 1 - s * Math.pow(1 - d / R, 2);
-        return [p.cx * W + dx * k, p.cy * H + dy * k];
+        out[0] = p.cx * W + dx * k; out[1] = p.cy * H + dy * k;
       });
     },
   });
@@ -211,9 +196,9 @@
     params: [P.range('amount', 'Strength (px)', 0, 8, 0.1, 1.5), P.int('scale', 'Scale', 1, 16, 6), P.speed(1, 'speed', 'Rise speed', 1, 8)],
     run(buf, W, H, t, p) {
       const sy = Math.max(1, Math.round(p.scale / (W / H) * 2));
-      return remap(buf, W, H, (x, y) => {
+      return remap(buf, W, H, (x, y, s) => {
         const n = vnoise((x / W) * p.scale, (y / H + t * p.speed) * sy, p.scale, sy, 5) - 0.5;
-        return [x + n * 2 * p.amount, y + n * p.amount * 0.5];
+        s[0] = x + n * 2 * p.amount; s[1] = y + n * p.amount * 0.5;
       });
     },
   });
@@ -320,8 +305,8 @@
     run(buf, W, H, t, p) {
       const out = new Float32Array(buf);
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        const i = (y * W + x) * 4, n = [(y * W + wrap(x - 1, W)) * 4, (y * W + wrap(x + 1, W)) * 4, (wrap(y - 1, H) * W + x) * 4, (wrap(y + 1, H) * W + x) * 4];
-        for (let k = 0; k < 3; k++) out[i + k] = clamp(buf[i + k] + p.amount * (4 * buf[i + k] - buf[n[0] + k] - buf[n[1] + k] - buf[n[2] + k] - buf[n[3] + k]) * 0.25);
+        const i = (y * W + x) * 4, n0 = (y * W + wrap(x - 1, W)) * 4, n1 = (y * W + wrap(x + 1, W)) * 4, n2 = (wrap(y - 1, H) * W + x) * 4, n3 = (wrap(y + 1, H) * W + x) * 4;
+        for (let k = 0; k < 3; k++) out[i + k] = clamp(buf[i + k] + p.amount * (4 * buf[i + k] - buf[n0 + k] - buf[n1 + k] - buf[n2 + k] - buf[n3 + k]) * 0.25);
       }
       return out;
     },
