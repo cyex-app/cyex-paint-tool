@@ -65,14 +65,28 @@
       for (const k of ['scale', 'rotate', 'ox', 'oy', 'sx', 'sy', 'spin']) n.xf[k] = num(n.xf[k], DEFAULT_XF[k], k === 'scale' ? 0.1 : k === 'rotate' ? -180 : -8, k === 'scale' ? 6 : k === 'rotate' ? 180 : 8);
       for (const k of ['sx', 'sy', 'spin']) n.xf[k] = Math.round(n.xf[k]);
       n.tweak = sanitizeTweak(n.tweak);
+      n.clip = !!l.clip; n.group = typeof l.group === 'string' ? l.group.slice(0, 40) : undefined; n.keys = sanitizeKeys(l.keys);
       return n;
     });
     d.effects = F.filter((e) => e && PL.EFFECTS[e.type] || (dropped++, false)).slice(0, 30).map((e) => {
-      const n = newEffect(e.type, e); n.name = String(n.name || '').slice(0, 64); n.visible = n.visible !== false; return n;
+      const n = newEffect(e.type, e); n.name = String(n.name || '').slice(0, 64); n.visible = n.visible !== false; n.keys = sanitizeKeys(e.keys); return n;
     });
     d.shadows = sanitizeShadows(src.shadows);
+    d.groups = (Array.isArray(src.groups) ? src.groups : []).filter((g) => g && typeof g.id === 'string').slice(0, 30).map((g) => ({ id: g.id.slice(0, 40), name: String(g.name || 'Group').slice(0, 64), visible: g.visible !== false, collapsed: !!g.collapsed }));
+    const gids = new Set(d.groups.map((g) => g.id)); for (const l of d.layers) if (l.group && !gids.has(l.group)) delete l.group;
     d.tweak = sanitizeTweak(src.tweak);
     return { doc: d, dropped };
+  }
+  // keys: { path: [{ t, v, e }] }; paths are dotted and must start with params., xf. or be opacity
+  function sanitizeKeys(keys) {
+    if (!keys || typeof keys !== 'object') return undefined;
+    const out = {};
+    for (const [path, list] of Object.entries(keys).slice(0, 40)) {
+      if (!/^(params\.[\w.]+|xf\.\w+|opacity)$/.test(path) || !Array.isArray(list)) continue;
+      const ks = list.filter((k) => k && Number.isFinite(+k.t) && Number.isFinite(+k.v)).slice(0, 32).map((k) => ({ t: clamp(+k.t), v: +k.v, e: ['ease', 'linear', 'hold', 'in', 'out'].includes(k.e) ? k.e : 'ease' }));
+      if (ks.length) out[path] = ks;
+    }
+    return Object.keys(out).length ? out : undefined;
   }
   function sanitizeTweak(tw) {
     const t = Object.assign({}, DEFAULT_TWEAK, tw && typeof tw === 'object' ? tw : {});
@@ -95,7 +109,7 @@
     return Object.assign({ id: PL.uid('e'), type, name: def.name, visible: true }, over, { params: fixParams(def, over.params) });
   }
   function blankDoc() {
-    return { name: 'Unnamed Paint', width: 256, height: 64, fps: 25, duration: 2, layers: [], effects: [], shadows: [], tweak: Object.assign({}, DEFAULT_TWEAK) };
+    return { name: 'Unnamed Paint', width: 256, height: 64, fps: 25, duration: 2, layers: [], effects: [], shadows: [], tweak: Object.assign({}, DEFAULT_TWEAK), groups: [] };
   }
   const frameCount = (doc) => Math.max(1, Math.round(doc.duration * doc.fps));
 
@@ -127,11 +141,49 @@
     };
   }
 
+  // ---- keyframes ----
+  // item.keys = { 'params.size': [{ t: 0..1, v: number, e: 'ease' | 'linear' | 'hold' }], 'xf.rotate': [...], 'opacity': [...] }
+  // Values interpolate between keys and wrap from the last key back to the first across the loop
+  // end, so a keyed loop stays seamless. Paths can reach into palettes: 'params.stops.colors.2.w'.
+  const EASE = { linear: (k) => k, ease: (k) => k * k * (3 - 2 * k), hold: () => 0, in: (k) => k * k, out: (k) => 1 - (1 - k) * (1 - k) };
+  function keyValue(keys, t) {
+    const ks = keys.filter((k) => Number.isFinite(k.t) && Number.isFinite(k.v)).sort((a, b) => a.t - b.t);
+    if (!ks.length) return null;
+    if (ks.length === 1) return ks[0].v;
+    let a = ks[ks.length - 1], b = ks[0], span, k;
+    for (let i = 0; i < ks.length - 1; i++) if (t >= ks[i].t && t < ks[i + 1].t) { a = ks[i]; b = ks[i + 1]; break; }
+    if (a === ks[ks.length - 1]) { span = 1 - a.t + b.t; k = span > 0 ? ((t >= a.t ? t - a.t : t + 1 - a.t) / span) : 0; }
+    else { span = b.t - a.t; k = span > 0 ? (t - a.t) / span : 0; }
+    return a.v + (b.v - a.v) * (EASE[a.e] || EASE.ease)(clamp(k));
+  }
+  function setPath(obj, path, v) {
+    const parts = path.split('.'); let o = obj;
+    for (let i = 0; i < parts.length - 1; i++) { if (o == null) return; o = o[parts[i]]; }
+    if (o != null && typeof o[parts[parts.length - 1]] === 'number') o[parts[parts.length - 1]] = v;
+  }
+  const hasKeys = (it) => it.keys && Object.values(it.keys).some((k) => Array.isArray(k) && k.length);
+  // The item with every keyed value applied for moment t (a copy; the document is untouched).
+  function itemAt(it, t) {
+    const c = { params: PL.clone(it.params), xf: Object.assign({}, it.xf), opacity: it.opacity };
+    for (const [path, keys] of Object.entries(it.keys || {})) { const v = keyValue(keys, t); if (v != null) setPath(c, path, v); }
+    return c;
+  }
+
+  function compileLayer(l, at) {
+    const def = PL.LAYERS[l.type], src = at || l;
+    return { def, p: prepParams(def, src.params), xf: Object.assign({}, DEFAULT_XF, src.xf), blend: l.blend, opacity: clamp(src.opacity), tweak: compileTweak(l.tweak), clip: !!l.clip, keyed: hasKeys(l) ? l : null };
+  }
+  function compileEffect(e, at) {
+    const def = PL.EFFECTS[e.type];
+    return { def, p: prepParams(def, (at || e).params), keyed: hasKeys(e) ? e : null };
+  }
   function compile(doc) {
+    // groups are folders in the layer list; a hidden group hides its layers
+    const hiddenGroups = new Set((doc.groups || []).filter((g) => g.visible === false).map((g) => g.id));
     return {
       W: doc.width | 0, H: doc.height | 0, frames: frameCount(doc),
-      layers: doc.layers.filter((l) => l.visible && PL.LAYERS[l.type]).map((l) => ({ def: PL.LAYERS[l.type], p: prepParams(PL.LAYERS[l.type], l.params), xf: Object.assign({}, DEFAULT_XF, l.xf), blend: l.blend, opacity: l.opacity, tweak: compileTweak(l.tweak) })),
-      effects: doc.effects.filter((e) => e.visible && PL.EFFECTS[e.type]).map((e) => ({ def: PL.EFFECTS[e.type], p: prepParams(PL.EFFECTS[e.type], e.params) })),
+      layers: doc.layers.filter((l) => l.visible && PL.LAYERS[l.type] && !hiddenGroups.has(l.group)).map((l) => compileLayer(l)),
+      effects: doc.effects.filter((e) => e.visible && PL.EFFECTS[e.type]).map((e) => compileEffect(e)),
       tweak: compileTweak(doc.tweak),
     };
   }
@@ -139,7 +191,7 @@
   // Scratch canvas for layers that draw with the 2D canvas API (scene elements).
   let scratch = null, sctx = null;
   function scratchFor(W, H) {
-    if (!scratch) { scratch = document.createElement('canvas'); sctx = scratch.getContext('2d', { willReadFrequently: true }); }
+    if (!scratch) { scratch = PL.makeCanvas(W, H); sctx = scratch.getContext('2d', { willReadFrequently: true }); }
     if (scratch.width !== W || scratch.height !== H) { scratch.width = W; scratch.height = H; }
     sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.globalAlpha = 1; sctx.globalCompositeOperation = 'source-over'; sctx.filter = 'none'; sctx.shadowBlur = 0; sctx.shadowColor = 'transparent';
     sctx.clearRect(0, 0, W, H);
@@ -170,12 +222,19 @@
     const buf = new Float32Array(W * H * 4);
     const c = { W, H, A: W / H, frame, frames: cp.frames };
     const o = [0, 0, 0, 0];
-    for (const L of cp.layers) {
+    // coverage of the last unclipped layer, for "clip to layer below" (a clipped layer only shows where it does)
+    const needCov = cp.layers.some((l) => l.clip);
+    const cov = needCov ? new Float32Array(W * H) : null;
+    for (let L of cp.layers) {
+      if (L.keyed) L = Object.assign({}, compileLayer(L.keyed, itemAt(L.keyed, t)));
       const { def, p, xf, tweak } = L;
+      const clip = L.clip && cov, track = cov && !L.clip;
       if (def.draw) {
         const d = drawLayer(L, t, c);
-        for (let i = 0; i < d.length; i += 4) {
-          const a = d[i + 3] / 255;
+        for (let i = 0, q = 0; i < d.length; i += 4, q++) {
+          let a = d[i + 3] / 255;
+          if (track) cov[q] = a;
+          if (clip) a *= cov[q];
           if (a <= 0 && L.blend !== 'mask') continue;
           o[0] = d[i] / 255; o[1] = d[i + 1] / 255; o[2] = d[i + 2] / 255;
           if (tweak) tweak(o);
@@ -198,12 +257,15 @@
           }
           def.sample(u, v, t, p, o, c);
           if (tweak) tweak(o);
-          PL.blendPx(buf, i, o, clamp(o[3]) * L.opacity, L.blend);
+          let a = clamp(o[3]);
+          if (track) cov[i >> 2] = a;
+          if (clip) a *= cov[i >> 2];
+          PL.blendPx(buf, i, o, a * L.opacity, L.blend);
         }
       }
     }
     let out = buf;
-    for (const E of cp.effects) out = E.def.run(out, W, H, t, E.p, c) || out;
+    for (let E of cp.effects) { if (E.keyed) E = compileEffect(E.keyed, itemAt(E.keyed, t)); out = E.def.run(out, W, H, t, E.p, c) || out; }
     if (cp.tweak) { const tw = cp.tweak; for (let i = 0; i < out.length; i += 4) { o[0] = out[i]; o[1] = out[i + 1]; o[2] = out[i + 2]; tw(o); out[i] = o[0]; out[i + 1] = o[1]; out[i + 2] = o[2]; } }
     return out;
   }
@@ -219,5 +281,5 @@
     return toImageData(renderBuf(cp, t, W || cp.W, H || cp.H, index), W || cp.W, H || cp.H);
   }
 
-  PL.Engine = { newLayer, newEffect, blankDoc, frameCount, compile, renderBuf, renderFrame, toImageData, defaults, fixParams, sanitizeDoc, sanitizeShadows, DEFAULT_XF, DEFAULT_TWEAK };
+  PL.Engine = { keyValue, itemAt, hasKeys, newLayer, newEffect, blankDoc, frameCount, compile, renderBuf, renderFrame, toImageData, defaults, fixParams, sanitizeDoc, sanitizeShadows, DEFAULT_XF, DEFAULT_TWEAK };
 })(window.PL);

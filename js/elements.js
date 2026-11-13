@@ -112,7 +112,7 @@
 
   // ---------- sprites: each element is drawn once per frame-size into a small canvas, then stamped ----------
   function makeSprite(w, h, pad, paint) {
-    const cv = document.createElement('canvas');
+    const cv = PL.makeCanvas(1, 1);
     cv.width = Math.max(1, Math.ceil(w + pad * 2)); cv.height = Math.max(1, Math.ceil(h + pad * 2));
     const ctx = cv.getContext('2d');
     ctx.translate(cv.width / 2, cv.height / 2);
@@ -236,7 +236,7 @@
         const str = p.cycle ? chars[it.i % chars.length] : p.text;
         return cached(p, R.toFixed(1) + str + (it.colour ? it.colour.c : ''), () => {
           const font = `${p.bold ? 700 : 400} ${R * 2}px ${fontStack[p.font] || fontStack.sans}`;
-          const mc = document.createElement('canvas').getContext('2d'); mc.font = font;
+          const mc = PL.makeCanvas(1, 1).getContext('2d'); mc.font = font;
           const w = Math.max(R, mc.measureText(str).width), pad = Math.ceil(R * (p.outline || 0) * 2 + 2);
           return makeSprite(w, R * 2.4, pad, (x) => {
             x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle';
@@ -259,7 +259,7 @@
     draw(ctx, t, p, c) {
       const im = PL.imageCache[p.src];
       if (!im) return;
-      if (!im.canvas) { im.canvas = document.createElement('canvas'); im.canvas.width = im.w; im.canvas.height = im.h; im.canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(im.data), im.w, im.h), 0, 0); }
+      if (!im.canvas) { im.canvas = PL.makeCanvas(im.w, im.h); im.canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(im.data), im.w, im.h), 0, 0); }
       const H = Math.min(512, p.size * c.H), W = (H * im.w) / im.h;
       stampAll(ctx, t, p, c, () => cached(p, H.toFixed(1), () => makeSprite(W, H, 1, (x) => {
         x.drawImage(im.canvas, -W / 2, -H / 2, W, H);

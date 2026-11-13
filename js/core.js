@@ -173,6 +173,9 @@ window.PL = window.PL || {};
   function rng(seed) { let s = seed >>> 0 || 1; return () => { s = Math.imul(s ^ (s >>> 15), 2246822519) + 0x9e3779b9 | 0; s ^= s >>> 13; return (s >>> 0) / 4294967296; }; }
   let idc = 0;
   const uid = (p = 'id') => p + '_' + Date.now().toString(36) + '_' + (idc++).toString(36);
+  // A drawing canvas that works on the page and inside a Web Worker (OffscreenCanvas), so the
+  // renderer can run in either.
+  const makeCanvas = (w, h) => { if (typeof document !== 'undefined') { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; } return new OffscreenCanvas(w, h); };
   const clone = (x) => JSON.parse(JSON.stringify(x));
 
   // cyex number formats: 1.000.000 and 1,5 MB
@@ -190,6 +193,6 @@ window.PL = window.PL || {};
     hexToRgb, rgbToHex, packRGBA, unpackRGBA, decToCss, hexAlphaToDec, decToHexAlpha,
     hsvToRgb, rgbToHsl, hslToRgb, luma,
     normStops, sampleStops, buildLut, lutAt, LUT_N, mixHex, paletteToStops, stopsToPalette, pickWeighted, rgbaStr,
-    hash2, vnoise, fbm, ridged, rng, uid, clone, fmtInt, fmtBytes, fmtNum,
+    hash2, vnoise, fbm, ridged, rng, uid, makeCanvas, clone, fmtInt, fmtBytes, fmtNum,
   });
 })(window.PL);
