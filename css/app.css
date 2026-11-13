@@ -382,3 +382,17 @@ label.btn:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2
 .item .name:focus-visible { outline-offset: 0; }
 /* narrow panels (phones): drop row thumbnails so layer names stay readable */
 @container (max-width: 320px) { .item .thumb { display: none; } .item .meta { display: none; } }
+/* control edges meet 3:1 non-text contrast; structure lines keep the quieter --border-strong */
+.field, .num, .select > button, .check .box, .swatch, .gbar, .pbar { border-color: var(--control-border); }
+input[type='range']::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--accent) var(--p), var(--control-border) var(--p)); }
+input[type='range']::-moz-range-track { background: var(--control-border); }
+.field:focus-visible, .num:focus-visible { border-color: var(--focus-ring); }
+/* phones: header on one row (mark, mode switch, icon tools) */
+@media (max-width: 640px) {
+  .topbar-in { flex-wrap: nowrap; gap: 8px; padding-block: 8px; }
+  .brand span { display: none; }
+  #modeSeg button { padding: 0 10px; }
+  .topbar-tools { gap: 4px; }
+  .topbar-tools .btn.small { padding: 0 8px; }
+  #presetsBtn { padding: 0 9px; }
+}

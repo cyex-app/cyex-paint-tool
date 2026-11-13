@@ -32,6 +32,7 @@
   --elevated-2: #353640; /* tooltips, tiles inside a popover */
   --border: #34353c;
   --border-strong: #43454d;
+  --control-border: #75777f; /* edges of fields, checkboxes, sliders: >= 3:1 on --bg and --surface (WCAG 1.4.11) */
   --text: #e8e8ea;
   --muted: #b4b5bb;
   --dim: #9fa1a9;
@@ -122,6 +123,7 @@
   --elevated-2: #f4f4f6;
   --border: #dcdde1;
   --border-strong: #c4c6cc;
+  --control-border: #8a8c94; /* >= 3:1 on white and --bg */
   --text: #1b1c20;
   --muted: #4f515a;
   --dim: #6b6d76;        /* not a mirror: a straight flip lands near 2.9:1 on white */
@@ -606,6 +608,20 @@ label.btn:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2
 .item .name:focus-visible { outline-offset: 0; }
 /* narrow panels (phones): drop row thumbnails so layer names stay readable */
 @container (max-width: 320px) { .item .thumb { display: none; } .item .meta { display: none; } }
+/* control edges meet 3:1 non-text contrast; structure lines keep the quieter --border-strong */
+.field, .num, .select > button, .check .box, .swatch, .gbar, .pbar { border-color: var(--control-border); }
+input[type='range']::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--accent) var(--p), var(--control-border) var(--p)); }
+input[type='range']::-moz-range-track { background: var(--control-border); }
+.field:focus-visible, .num:focus-visible { border-color: var(--focus-ring); }
+/* phones: header on one row (mark, mode switch, icon tools) */
+@media (max-width: 640px) {
+  .topbar-in { flex-wrap: nowrap; gap: 8px; padding-block: 8px; }
+  .brand span { display: none; }
+  #modeSeg button { padding: 0 10px; }
+  .topbar-tools { gap: 4px; }
+  .topbar-tools .btn.small { padding: 0 8px; }
+  #presetsBtn { padding: 0 9px; }
+}
 
 </style>
 </head>
@@ -842,6 +858,103 @@ window.PL = window.PL || {};
     normStops, sampleStops, buildLut, lutAt, LUT_N, mixHex, paletteToStops, stopsToPalette, pickWeighted, rgbaStr,
     hash2, vnoise, fbm, ridged, rng, uid, clone, fmtInt, fmtBytes, fmtNum,
   });
+})(window.PL);
+
+</script>
+  <script>
+/* Shared per-pixel helpers for layers and effects (loads right after core.js; uses only core.js exports). */
+(function (PL) {
+  'use strict';
+  const { wrap, hexToRgb } = PL;
+
+  const rgb01 = (hex) => hexToRgb(hex).map((x) => x / 255);
+  // prepare() helper: stores p['_' + key] = [r, g, b] (0..1) for every colour key.
+  const colorPrep = (keys) => (p) => { for (const k of keys) p['_' + k] = rgb01(p[k]); };
+  // Visit every pixel of buf: fn(i, u, v, x, y) with i the buffer index and u, v in 0..1 at the pixel centre.
+  const eachPx = (buf, W, H, fn) => { for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i += 4) fn(i, (x + 0.5) / W, (y + 0.5) / H, x, y); return buf; };
+
+  // Bilinear sample at pixel coordinates (x, y) (pixel centres at +0.5). Edges wrap, or clamp when wrapEdges is false.
+  function bilinear(buf, W, H, x, y, out, wrapEdges = true) {
+    x -= 0.5; y -= 0.5;
+    const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+    let xa, xb, ya, yb;
+    if (wrapEdges) {
+      xa = ((x0 % W) + W) % W; xb = (((x0 + 1) % W) + W) % W;
+      ya = ((y0 % H) + H) % H; yb = (((y0 + 1) % H) + H) % H;
+    } else {
+      xa = Math.max(0, Math.min(W - 1, x0)); xb = Math.max(0, Math.min(W - 1, x0 + 1));
+      ya = Math.max(0, Math.min(H - 1, y0)); yb = Math.max(0, Math.min(H - 1, y0 + 1));
+    }
+    const a = (ya * W + xa) * 4, b = (ya * W + xb) * 4, c = (yb * W + xa) * 4, d = (yb * W + xb) * 4;
+    for (let k = 0; k < 4; k++) {
+      const m1 = buf[a + k] + (buf[b + k] - buf[a + k]) * fx, m2 = buf[c + k] + (buf[d + k] - buf[c + k]) * fx;
+      out[k] = m1 + (m2 - m1) * fy;
+    }
+    return out;
+  }
+
+  // Warp the image: fn(x, y, out2) writes the source position (pixels) for the pixel centre (x, y) into out2[0], out2[1].
+  function remap(buf, W, H, fn) {
+    const out = new Float32Array(buf.length), o = new Float64Array(4), s = new Float64Array(2);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      fn(x + 0.5, y + 0.5, s);
+      bilinear(buf, W, H, s[0], s[1], o);
+      const i = (y * W + x) * 4; out[i] = o[0]; out[i + 1] = o[1]; out[i + 2] = o[2]; out[i + 3] = o[3];
+    }
+    return out;
+  }
+
+  // Two-pass box blur with sliding-window sums (cost independent of the radius). Premultiplied so transparent
+  // pixels don't darken edges; wraps horizontally, clamps vertically. Sums below EPS count as empty.
+  const EPS = 1e-12;
+  function boxBlur(buf, W, H, r) {
+    if (r < 1) return buf;
+    r = Math.round(r);
+    let src = buf;
+    const tmp = new Float32Array(buf.length), acc = new Float64Array(W * 4), stride = W * 4;
+    for (let pass = 0; pass < 2; pass++) {
+      const n = 2 * r + 1;
+      // horizontal
+      for (let y = 0; y < H; y++) {
+        const row = y * W;
+        let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+        for (let k = -r; k <= r; k++) { const i = (row + wrap(k, W)) * 4, a = src[i + 3]; s0 += src[i] * a; s1 += src[i + 1] * a; s2 += src[i + 2] * a; s3 += a; }
+        for (let x = 0; x < W; x++) {
+          const j = (row + x) * 4;
+          if (s3 > EPS) { tmp[j] = s0 / n; tmp[j + 1] = s1 / n; tmp[j + 2] = s2 / n; tmp[j + 3] = s3 / n; }
+          else { tmp[j] = 0; tmp[j + 1] = 0; tmp[j + 2] = 0; tmp[j + 3] = 0; }
+          const ia = (row + wrap(x + r + 1, W)) * 4, aa = src[ia + 3], ib = (row + wrap(x - r, W)) * 4, ab = src[ib + 3];
+          s0 += src[ia] * aa - src[ib] * ab; s1 += src[ia + 1] * aa - src[ib + 1] * ab; s2 += src[ia + 2] * aa - src[ib + 2] * ab; s3 += aa - ab;
+        }
+      }
+      // vertical (rows clamp at the top and bottom), then un-premultiply
+      const out = new Float32Array(buf.length);
+      acc.fill(0);
+      for (let k = -r; k <= r; k++) { const base = Math.max(0, Math.min(H - 1, k)) * stride; for (let q = 0; q < stride; q++) acc[q] += tmp[base + q]; }
+      for (let y = 0; y < H; y++) {
+        const base = y * stride;
+        for (let q = 0; q < stride; q += 4) {
+          const s3 = acc[q + 3];
+          if (s3 > EPS) { const a = s3 / n, j = base + q; out[j] = acc[q] / n / a; out[j + 1] = acc[q + 1] / n / a; out[j + 2] = acc[q + 2] / n / a; out[j + 3] = a; }
+        }
+        const ba = Math.max(0, Math.min(H - 1, y + r + 1)) * stride, bb = Math.max(0, Math.min(H - 1, y - r)) * stride;
+        for (let q = 0; q < stride; q++) acc[q] += tmp[ba + q] - tmp[bb + q];
+      }
+      src = out;
+      r = Math.max(1, Math.round(r * 0.6));
+    }
+    return src;
+  }
+
+  // 3x3 hue-rotation matrix (row-major) for deg degrees.
+  function hueMatrix(deg) {
+    const a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+    return [0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.928,
+      0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.14, 0.072 - c * 0.072 - s * 0.283,
+      0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072];
+  }
+
+  PL.fx = { rgb01, colorPrep, eachPx, bilinear, remap, boxBlur, hueMatrix };
 })(window.PL);
 
 </script>
@@ -1224,6 +1337,7 @@ window.PL = window.PL || {};
 (function (PL) {
   'use strict';
   const { TAU, clamp, fract, mix, smoothstep, tri, wrap, hexToRgb, lutAt, hash2, vnoise, fbm, ridged, hslToRgb, rgbToHsl, luma } = PL;
+  const { rgb01, colorPrep, eachPx, bilinear, remap, boxBlur, hueMatrix } = PL.fx;
 
   // ---------- palettes ----------
   const S = (...pairs) => pairs.map(([at, color, a = 1]) => ({ at, color, a }));
@@ -1278,12 +1392,10 @@ window.PL = window.PL || {};
   const LAYERS = {}, EFFECTS = {};
   const layer = (id, def) => { def.id = id; LAYERS[id] = def; };
   const effect = (id, def) => { def.id = id; EFFECTS[id] = def; };
-  const rgb01 = (hex) => hexToRgb(hex).map((x) => x / 255);
   const setC = (o, c, a) => { o[0] = c[0]; o[1] = c[1]; o[2] = c[2]; o[3] = a; return o; };
   const mixC = (o, a, b, f, alpha = 1) => { o[0] = mix(a[0], b[0], f); o[1] = mix(a[1], b[1], f); o[2] = mix(a[2], b[2], f); o[3] = alpha; return o; };
   const proj = (u, v, deg, A = 1) => { const r = (deg * Math.PI) / 180, dx = Math.sin(r), dy = -Math.cos(r); return ((u - 0.5) * A * dx + (v - 0.5) * dy) / (Math.abs(dx) * A + Math.abs(dy)) + 0.5; };
   const wrapF = (f, doWrap, mirror) => (mirror ? tri(f) : doWrap ? fract(f) : clamp(f));
-  const colorPrep = (keys) => (p) => { for (const k of keys) p['_' + k] = rgb01(p[k]); };
 
   // =====================================================================================
   // Gradients
@@ -1417,12 +1529,13 @@ window.PL = window.PL || {};
   // =====================================================================================
   // Noise and fluids
   // =====================================================================================
-  const flowXY = (t, p) => { const a = TAU * t * p.speed; return [Math.cos(a) * p.flow, Math.sin(a) * p.flow]; };
+  // Per-frame churn offset, cached on p (t is constant for a whole frame): read p._fx, p._fy afterwards.
+  const flowXY = (t, p) => { if (p._ft !== t) { const a = TAU * t * p.speed; p._ft = t; p._fx = Math.cos(a) * p.flow; p._fy = Math.sin(a) * p.flow; } };
   layer('clouds', {
     name: 'Clouds', cat: 'Noise and fluids', desc: 'Soft fractal noise that drifts and churns.',
     params: [P.pal('galaxy'), P.int('sx', 'Scale x', 1, 32, 8), P.int('sy', 'Scale y', 1, 16, 2), P.int('oct', 'Detail', 1, 6, 4), P.range('contrast', 'Contrast', 0.2, 4, 0.05, 1.4), P.range('flow', 'Churn', 0, 3, 0.05, 0.8), P.speed(1), P.speed(0, 'drift', 'Drift'), P.seed(1)],
     sample(u, v, t, p, o, c) {
-      const [ox, oy] = flowXY(t, p);
+      flowXY(t, p); const ox = p._fx, oy = p._fy;
       const n = fbm((u - t * p.drift) * p.sx + ox, v * p.sy + oy, p.sx, p.sy, p.oct, p.seed);
       return lutAt(p._stops, clamp((n - 0.5) * p.contrast + 0.5), o);
     },
@@ -1431,7 +1544,7 @@ window.PL = window.PL || {};
     name: 'Smoke', cat: 'Noise and fluids', desc: 'Ridged noise: wisps, veins and electric threads.',
     params: [P.pal('mono'), P.int('sx', 'Scale x', 1, 32, 6), P.int('sy', 'Scale y', 1, 16, 2), P.int('oct', 'Detail', 1, 6, 4), P.range('contrast', 'Contrast', 0.2, 4, 0.05, 1.6), P.range('flow', 'Churn', 0, 3, 0.05, 0.7), P.speed(1), P.speed(1, 'drift', 'Drift'), P.seed(7)],
     sample(u, v, t, p, o, c) {
-      const [ox, oy] = flowXY(t, p);
+      flowXY(t, p); const ox = p._fx, oy = p._fy;
       const n = ridged((u - t * p.drift) * p.sx + ox, v * p.sy + oy, p.sx, p.sy, p.oct, p.seed);
       return lutAt(p._stops, clamp((n - 0.5) * p.contrast + 0.5), o);
     },
@@ -1449,7 +1562,7 @@ window.PL = window.PL || {};
     name: 'Marble', cat: 'Noise and fluids', desc: 'Veined stone, gently flowing.',
     params: [P.pal([{ at: 0, color: '#f4f1ea' }, { at: 0.6, color: '#d8d2c6' }, { at: 0.85, color: '#6b6355' }, { at: 1, color: '#1f1b16' }]), P.range('veins', 'Veins', 0.5, 12, 0.5, 3), P.range('turb', 'Turbulence', 0, 6, 0.1, 2.5), P.int('sx', 'Scale x', 1, 16, 4), P.int('sy', 'Scale y', 1, 8, 2), P.range('flow', 'Flow', 0, 2, 0.05, 0.5), P.speed(1), P.seed(3)],
     sample(u, v, t, p, o, c) {
-      const [ox, oy] = flowXY(t, p);
+      flowXY(t, p); const ox = p._fx, oy = p._fy;
       const n = fbm(u * p.sx + ox, v * p.sy + oy, p.sx, p.sy, 5, p.seed);
       return lutAt(p._stops, 0.5 + 0.5 * Math.sin(TAU * (u * p.veins + v * 0.5 + p.turb * n)), o);
     },
@@ -1571,27 +1684,40 @@ window.PL = window.PL || {};
   layer('sparkles', {
     name: 'Sparkles', cat: 'Particles and light', desc: 'Twinkling four-point glints. Layer over anything.',
     params: [P.color('color', 'Colour', '#ffffff'), P.range('cell', 'Spacing (px)', 4, 60, 1, 14), P.range('density', 'Density', 0.02, 1, 0.01, 0.35), P.range('size', 'Size (px)', 0.5, 8, 0.1, 2.2), P.bool('rays', 'Star rays', true), P.int('twinkle', 'Twinkles per loop', 1, 8, 2), P.range('variety', 'Size variety', 0, 1, 0.01, 0.6), P.seed(12)],
-    prepare: colorPrep(['color']),
-    sample(u, v, t, p, o, c) {
-      const a = particles(u, v, p, c, p.cell, (dx, dy, h, h2) => {
-        const tw = Math.pow(Math.max(0, Math.sin(TAU * (t * p.twinkle + h2))), 3);
+    prepare(p) {
+      colorPrep(['color'])(p);
+      p._fn = (dx, dy, h, h2) => { // reads the frame time from p._t (set by sample, constant per frame)
+        const t = p._t, tw = Math.pow(Math.max(0, Math.sin(TAU * (t * p.twinkle + h2))), 3);
         return starShape(dx, dy, p.size * (1 - p.variety * h) * tw, p.rays) * tw;
-      });
+      };
+    },
+    sample(u, v, t, p, o, c) {
+      p._t = t;
+      const a = particles(u, v, p, c, p.cell, p._fn);
       return setC(o, p._color, clamp(a));
     },
   });
   layer('stars', {
     name: 'Starfield', cat: 'Particles and light', desc: 'Drifting stars at several depths.',
     params: [P.color('color', 'Colour', '#e8f0ff'), P.range('cell', 'Spacing (px)', 3, 40, 1, 9), P.range('density', 'Density', 0.02, 1, 0.01, 0.4), P.range('size', 'Size (px)', 0.3, 4, 0.1, 1.1), P.int('depth', 'Depth layers', 1, 3, 2), P.speed(1, 'speed', 'Drift'), P.int('twinkle', 'Twinkles per loop', 0, 8, 1), P.seed(21)],
-    prepare: colorPrep(['color']),
+    prepare(p) {
+      colorPrep(['color'])(p);
+      // per-depth seed/density holders and shape callbacks, built once (particles() reads only seed and density)
+      p._q = []; p._fns = [];
+      for (let l = 0; l < p.depth; l++) {
+        p._q.push({ seed: p.seed + l * 101, density: p.density });
+        p._fns.push((dx, dy, h, h2) => {
+          const t = p._t, tw = p.twinkle ? 0.55 + 0.45 * Math.sin(TAU * (t * p.twinkle + h2)) : 1;
+          return starShape(dx, dy, p.size * (0.6 + l * 0.35) * (0.5 + h), false) * tw * (0.5 + 0.5 * (l + 1) / p.depth);
+        });
+      }
+    },
     sample(u, v, t, p, o, c) {
       let a = 0;
+      p._t = t;
       for (let l = 0; l < p.depth; l++) {
-        const sp = p.speed * (l + 1), q = Object.assign({}, p, { seed: p.seed + l * 101, density: p.density });
-        a = Math.max(a, particles(fract(u - t * sp), v, q, c, p.cell * (1 + l * 0.6), (dx, dy, h, h2) => {
-          const tw = p.twinkle ? 0.55 + 0.45 * Math.sin(TAU * (t * p.twinkle + h2)) : 1;
-          return starShape(dx, dy, p.size * (0.6 + l * 0.35) * (0.5 + h), false) * tw * (0.5 + 0.5 * (l + 1) / p.depth);
-        }));
+        const sp = p.speed * (l + 1);
+        a = Math.max(a, particles(fract(u - t * sp), v, p._q[l], c, p.cell * (1 + l * 0.6), p._fns[l]));
       }
       return setC(o, p._color, clamp(a));
     },
@@ -1599,20 +1725,25 @@ window.PL = window.PL || {};
   layer('particles', {
     name: 'Snow, rain, bubbles', cat: 'Particles and light', desc: 'Falling or rising particles.',
     params: [P.select('mode', 'Type', [['snow', 'Snow'], ['rain', 'Rain'], ['bubbles', 'Bubbles'], ['embers', 'Embers']], 'snow'), P.color('color', 'Colour', '#ffffff'), P.range('cell', 'Spacing (px)', 4, 60, 1, 12), P.range('density', 'Density', 0.02, 1, 0.01, 0.5), P.range('size', 'Size (px)', 0.5, 8, 0.1, 1.6), P.speed(1, 'speed', 'Fall speed', 1, 8), P.speed(0, 'wind', 'Wind'), P.seed(31)],
-    prepare: colorPrep(['color']),
-    sample(u, v, t, p, o, c) {
-      const up = p.mode === 'bubbles' || p.mode === 'embers';
-      const vv = fract(v + (up ? 1 : -1) * t * p.speed), uu = fract(u - t * p.wind);
-      const a = particles(uu, vv, p, c, p.cell, (dx, dy, h, h2) => {
+    prepare(p) {
+      colorPrep(['color'])(p);
+      p._fn = (dx, dy, h, h2) => {
         const s = p.size * (0.6 + 0.8 * h2);
         if (p.mode === 'rain') return Math.max(0, 1 - Math.abs(dx) / (s * 0.45)) * Math.max(0, 1 - Math.abs(dy) / (s * 4));
         if (p.mode === 'bubbles') { const d = Math.hypot(dx, dy); return Math.max(0, 1 - Math.abs(d - s * 1.6) / 0.9) * 0.9 + (d < s * 1.6 ? 0.12 : 0); }
         const m = Math.max(0, 1 - Math.hypot(dx, dy) / s);
-        return p.mode === 'embers' ? m * (0.5 + 0.5 * Math.sin(TAU * (t * 3 + h2))) : m;
-      });
+        return p.mode === 'embers' ? m * (0.5 + 0.5 * Math.sin(TAU * (p._t * 3 + h2))) : m;
+      };
+    },
+    sample(u, v, t, p, o, c) {
+      p._t = t;
+      const up = p.mode === 'bubbles' || p.mode === 'embers';
+      const vv = fract(v + (up ? 1 : -1) * t * p.speed), uu = fract(u - t * p.wind);
+      const a = particles(uu, vv, p, c, p.cell, p._fn);
       return setC(o, p._color, clamp(a));
     },
   });
+  const shineBand = (f, c0, w, soft) => { const d = Math.abs(f - c0); return 1 - smoothstep(w * (1 - soft), w + 1e-4, d); };
   layer('shine', {
     name: 'Shine sweep', cat: 'Particles and light', desc: 'A highlight band that sweeps across, then rests.',
     params: [P.color('color', 'Colour', '#ffffff'), P.range('angle', 'Angle', 0, 360, 1, 70), P.range('width', 'Width', 0.01, 0.6, 0.01, 0.12), P.range('soft', 'Softness', 0, 1, 0.01, 0.7), P.range('intensity', 'Intensity', 0, 1, 0.01, 0.85), P.int('sweeps', 'Sweeps per loop', 1, 6, 1), P.range('hold', 'Rest time', 0, 0.9, 0.01, 0.45), P.bool('double', 'Double band', false)],
@@ -1621,9 +1752,8 @@ window.PL = window.PL || {};
       const f = proj(u, v, p.angle, c.A), local = fract(t * p.sweeps), act = 1 - p.hold;
       if (local >= act) return setC(o, p._color, 0);
       const cpos = mix(-p.width * 1.5, 1 + p.width * 1.5, local / act);
-      const band = (c0, w) => { const d = Math.abs(f - c0); return 1 - smoothstep(w * (1 - p.soft), w + 1e-4, d); };
-      let a = band(cpos, p.width);
-      if (p.double) a = Math.max(a, band(cpos - p.width * 2.2, p.width * 0.45) * 0.8);
+      let a = shineBand(f, cpos, p.width, p.soft);
+      if (p.double) a = Math.max(a, shineBand(f, cpos - p.width * 2.2, p.width * 0.45, p.soft) * 0.8);
       return setC(o, p._color, a * p.intensity);
     },
   });
@@ -1691,7 +1821,8 @@ window.PL = window.PL || {};
       let hp = fract(u - t * p.speed) - 0.5;
       const h = Math.exp(-(hp * hp) / (p.hw * p.hw * 0.25)) * p.hi;
       const k = 1 - p.grain * 0.5 + p.grain * n * 0.8;
-      return setC(o, [clamp(p._color[0] * k + h), clamp(p._color[1] * k + h), clamp(p._color[2] * k + h)], 1);
+      o[0] = clamp(p._color[0] * k + h); o[1] = clamp(p._color[1] * k + h); o[2] = clamp(p._color[2] * k + h); o[3] = 1;
+      return o;
     },
   });
   layer('holo', {
@@ -1734,7 +1865,7 @@ window.PL = window.PL || {};
     prepare(p) { p._img = PL.imageCache && PL.imageCache[p.src]; },
     sample(u, v, t, p, o, c) {
       const im = p._img;
-      if (!im) return setC(o, [0, 0, 0], 0);
+      if (!im) { o[0] = 0; o[1] = 0; o[2] = 0; o[3] = 0; return o; }
       const x = fract(u * p.tx - t * p.sx) * im.w, y = fract(v * p.ty - t * p.sy) * im.h;
       const i = ((Math.min(im.h - 1, y | 0) * im.w) + Math.min(im.w - 1, x | 0)) * 4, d = im.data;
       o[0] = d[i] / 255; o[1] = d[i + 1] / 255; o[2] = d[i + 2] / 255; o[3] = d[i + 3] / 255;
@@ -1745,55 +1876,6 @@ window.PL = window.PL || {};
   // =====================================================================================
   // Effects (post-processing on the composited image)
   // =====================================================================================
-  function bilinear(buf, W, H, x, y, out, wrapEdges = true) {
-    x -= 0.5; y -= 0.5;
-    let x0 = Math.floor(x), y0 = Math.floor(y); const fx = x - x0, fy = y - y0;
-    const X = (i) => (wrapEdges ? wrap(i, W) : Math.max(0, Math.min(W - 1, i))), Y = (i) => (wrapEdges ? wrap(i, H) : Math.max(0, Math.min(H - 1, i)));
-    const a = (Y(y0) * W + X(x0)) * 4, b = (Y(y0) * W + X(x0 + 1)) * 4, c = (Y(y0 + 1) * W + X(x0)) * 4, d = (Y(y0 + 1) * W + X(x0 + 1)) * 4;
-    for (let k = 0; k < 4; k++) out[k] = mix(mix(buf[a + k], buf[b + k], fx), mix(buf[c + k], buf[d + k], fx), fy);
-    return out;
-  }
-  function remap(buf, W, H, fn) { // fn(x, y) -> [sx, sy] in pixels
-    const out = new Float32Array(buf.length), o = [0, 0, 0, 0];
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const s = fn(x + 0.5, y + 0.5);
-      bilinear(buf, W, H, s[0], s[1], o);
-      const i = (y * W + x) * 4; out[i] = o[0]; out[i + 1] = o[1]; out[i + 2] = o[2]; out[i + 3] = o[3];
-    }
-    return out;
-  }
-  function boxBlur(buf, W, H, r) {
-    if (r < 1) return buf;
-    r = Math.round(r);
-    let src = buf, tmp = new Float32Array(buf.length);
-    for (let pass = 0; pass < 2; pass++) {
-      // horizontal (premultiplied so transparent pixels don't darken edges)
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-        for (let k = -r; k <= r; k++) { const i = (y * W + wrap(x + k, W)) * 4, a = src[i + 3]; s0 += src[i] * a; s1 += src[i + 1] * a; s2 += src[i + 2] * a; s3 += a; }
-        const n = 2 * r + 1, j = (y * W + x) * 4;
-        tmp[j] = s0 / n; tmp[j + 1] = s1 / n; tmp[j + 2] = s2 / n; tmp[j + 3] = s3 / n;
-      }
-      const out = new Float32Array(buf.length);
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-        for (let k = -r; k <= r; k++) { const i = (Math.max(0, Math.min(H - 1, y + k)) * W + x) * 4; s0 += tmp[i]; s1 += tmp[i + 1]; s2 += tmp[i + 2]; s3 += tmp[i + 3]; }
-        const n = 2 * r + 1, j = (y * W + x) * 4, a = s3 / n;
-        out[j] = a > 0 ? s0 / n / a : 0; out[j + 1] = a > 0 ? s1 / n / a : 0; out[j + 2] = a > 0 ? s2 / n / a : 0; out[j + 3] = a;
-      }
-      src = out;
-      r = Math.max(1, Math.round(r * 0.6));
-    }
-    return src;
-  }
-  const eachPx = (buf, W, H, fn) => { for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i += 4) fn(i, (x + 0.5) / W, (y + 0.5) / H, x, y); return buf; };
-
-  function hueMatrix(deg) {
-    const a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
-    return [0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.928,
-      0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.14, 0.072 - c * 0.072 - s * 0.283,
-      0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072];
-  }
   effect('hue', {
     name: 'Hue shift', cat: 'Colour', desc: 'Rotates every colour round the wheel; cycles make it loop.',
     params: [P.range('deg', 'Shift (degrees)', -180, 180, 1, 0), P.speed(1, 'cycles', 'Full turns per loop')],
@@ -1889,8 +1971,8 @@ window.PL = window.PL || {};
       }
       const a = ((p.angle + 360 * p.spin * t) * Math.PI) / 180, lx = Math.cos(a), ly = -Math.sin(a), lz = 0.6;
       const ln = Math.hypot(lx, ly, lz);
+      const h = (xx, yy) => hb[wrap(yy, H) * W + wrap(xx, W)];
       return eachPx(buf, W, H, (i, u, v, x, y) => {
-        const h = (xx, yy) => hb[wrap(yy, H) * W + wrap(xx, W)];
         const nx = (h(x - 1, y) - h(x + 1, y)) * p.depth, ny = (h(x, y - 1) - h(x, y + 1)) * p.depth;
         const nl = Math.hypot(nx, ny, 1);
         const d = (nx * lx + ny * -ly + lz) / (nl * ln) - lz / ln;
@@ -1950,9 +2032,10 @@ window.PL = window.PL || {};
     name: 'Wave distort', cat: 'Distortion', desc: 'Ripples the image sideways or up and down.',
     params: [P.select('axis', 'Shift', [['x', 'Sideways'], ['y', 'Up and down']], 'y'), P.range('amp', 'Amplitude (px)', 0, 20, 0.1, 3), P.int('freq', 'Waves', 1, 16, 3), P.speed(1)],
     run(buf, W, H, t, p) {
-      return remap(buf, W, H, (x, y) => p.axis === 'x'
-        ? [x + p.amp * Math.sin(TAU * ((y / H) * p.freq - t * p.speed)), y]
-        : [x, y + p.amp * Math.sin(TAU * ((x / W) * p.freq - t * p.speed))]);
+      return remap(buf, W, H, (x, y, s) => {
+        if (p.axis === 'x') { s[0] = x + p.amp * Math.sin(TAU * ((y / H) * p.freq - t * p.speed)); s[1] = y; }
+        else { s[0] = x; s[1] = y + p.amp * Math.sin(TAU * ((x / W) * p.freq - t * p.speed)); }
+      });
     },
   });
   effect('swirl', {
@@ -1960,10 +2043,10 @@ window.PL = window.PL || {};
     params: [P.range('strength', 'Strength (turns)', -2, 2, 0.01, 0.5), P.range('radius', 'Radius', 0.05, 1.5, 0.01, 0.6), P.range('cx', 'Centre x', 0, 1, 0.01, 0.5), P.range('cy', 'Centre y', 0, 1, 0.01, 0.5), P.speed(1, 'speed', 'Wobbles per loop', 0, 8)],
     run(buf, W, H, t, p) {
       const s = p.strength * (p.speed ? Math.sin(TAU * t * p.speed) : 1), R = p.radius * H;
-      return remap(buf, W, H, (x, y) => {
+      return remap(buf, W, H, (x, y, out) => {
         const dx = x - p.cx * W, dy = y - p.cy * H, d = Math.hypot(dx, dy);
         const k = Math.max(0, 1 - d / R), a = s * TAU * k * k, c = Math.cos(a), sn = Math.sin(a);
-        return [p.cx * W + dx * c - dy * sn, p.cy * H + dx * sn + dy * c];
+        out[0] = p.cx * W + dx * c - dy * sn; out[1] = p.cy * H + dx * sn + dy * c;
       });
     },
   });
@@ -1973,18 +2056,18 @@ window.PL = window.PL || {};
     run(buf, W, H, t, p) {
       if (p.mode === 'kaleido') {
         const seg = TAU / p.segments, cx = W / 2, cy = H / 2;
-        return remap(buf, W, H, (x, y) => {
+        return remap(buf, W, H, (x, y, s) => {
           const dx = x - cx, dy = y - cy;
           let a = Math.atan2(dy, dx) + TAU * t * p.spin;
           a = ((a % seg) + seg) % seg; if (a > seg / 2) a = seg - a;
           const r = Math.hypot(dx, dy);
-          return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+          s[0] = cx + Math.cos(a) * r; s[1] = cy + Math.sin(a) * r;
         });
       }
-      return remap(buf, W, H, (x, y) => [
-        p.mode === 'x' || p.mode === 'quad' ? (x > W / 2 ? W - x : x) : x,
-        p.mode === 'y' || p.mode === 'quad' ? (y > H / 2 ? H - y : y) : y,
-      ]);
+      return remap(buf, W, H, (x, y, s) => {
+        s[0] = p.mode === 'x' || p.mode === 'quad' ? (x > W / 2 ? W - x : x) : x;
+        s[1] = p.mode === 'y' || p.mode === 'quad' ? (y > H / 2 ? H - y : y) : y;
+      });
     },
   });
   effect('pixelate', {
@@ -2124,25 +2207,9 @@ window.PL = window.PL || {};
   const P = PL.P;
   const layer = (id, def) => { def.id = id; PL.LAYERS[id] = def; };
   const effect = (id, def) => { def.id = id; PL.EFFECTS[id] = def; };
-  const rgb01 = (hex) => hexToRgb(hex).map((x) => x / 255);
-  const colorPrep = (keys) => (p) => { for (const k of keys) p['_' + k] = rgb01(p[k]); };
-  const eachPx = (buf, W, H, fn) => { for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i += 4) fn(i, (x + 0.5) / W, (y + 0.5) / H, x, y); return buf; };
-  function bilinear(buf, W, H, x, y, out) {
-    x -= 0.5; y -= 0.5;
-    const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
-    const a = (wrap(y0, H) * W + wrap(x0, W)) * 4, b = (wrap(y0, H) * W + wrap(x0 + 1, W)) * 4, c = (wrap(y0 + 1, H) * W + wrap(x0, W)) * 4, d = (wrap(y0 + 1, H) * W + wrap(x0 + 1, W)) * 4;
-    for (let k = 0; k < 4; k++) out[k] = mix(mix(buf[a + k], buf[b + k], fx), mix(buf[c + k], buf[d + k], fx), fy);
-    return out;
-  }
-  function remap(buf, W, H, fn) {
-    const out = new Float32Array(buf.length), o = [0, 0, 0, 0];
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const s = fn(x + 0.5, y + 0.5); bilinear(buf, W, H, s[0], s[1], o);
-      const i = (y * W + x) * 4; out[i] = o[0]; out[i + 1] = o[1]; out[i + 2] = o[2]; out[i + 3] = o[3];
-    }
-    return out;
-  }
-  const flow = (t, p) => { const a = TAU * t * p.speed; return [Math.cos(a) * p.flow, Math.sin(a) * p.flow]; };
+  const { rgb01, colorPrep, eachPx, bilinear, remap } = PL.fx;
+  // Per-frame churn offset, cached on p (t is constant for a whole frame): read p._fx, p._fy afterwards.
+  const flow = (t, p) => { if (p._ft !== t) { const a = TAU * t * p.speed; p._ft = t; p._fx = Math.cos(a) * p.flow; p._fy = Math.sin(a) * p.flow; } };
 
   // =====================================================================================
   // Layers
@@ -2171,7 +2238,7 @@ window.PL = window.PL || {};
     name: 'Silk', cat: 'Noise and fluids', desc: 'Folded, flowing fabric made from warped noise.',
     params: [P.pal('dusk'), P.int('sx', 'Scale x', 1, 16, 4), P.int('sy', 'Scale y', 1, 8, 1), P.range('warp', 'Warp', 0, 4, 0.05, 1.8), P.range('flow', 'Flow', 0, 2, 0.05, 0.6), P.speed(1), P.range('sheen', 'Sheen', 0, 1, 0.01, 0.4), P.seed(23)],
     sample(u, v, t, p, o) {
-      const [ox, oy] = flow(t, p);
+      flow(t, p); const ox = p._fx, oy = p._fy;
       const q = fbm(u * p.sx + ox, v * p.sy + oy, p.sx, p.sy, 3, p.seed);
       const n = fbm(u * p.sx + p.warp * q, v * p.sy + p.warp * q * 0.7 - oy, p.sx, p.sy, 4, p.seed + 5);
       lutAt(p._stops, clamp(n * 1.3 - 0.15), o);
@@ -2253,8 +2320,9 @@ window.PL = window.PL || {};
   layer('plaid', {
     name: 'Plaid', cat: 'Patterns', desc: 'Woven tartan of crossing colour stripes.',
     params: [P.pal('blood'), P.int('cols', 'Stripes across', 1, 24, 6), P.int('rows', 'Stripes down', 1, 12, 2), P.range('mix', 'Weave mix', 0, 1, 0.01, 0.5), P.speed(1, 'sx', 'Scroll'), P.bool('weave', 'Fine weave lines', true)],
+    prepare(p) { p._pa = [0, 0, 0, 0]; p._pb = [0, 0, 0, 0]; },
     sample(u, v, t, p, o, c) {
-      const a = [0, 0, 0, 0], b = [0, 0, 0, 0];
+      const a = p._pa, b = p._pb;
       lutAt(p._stops, fract(u * p.cols - t * p.sx), a); lutAt(p._stops, fract(v * p.rows), b);
       let m = p.mix;
       if (p.weave) { const X = Math.floor(u * c.W), Y = Math.floor(v * c.H); m = ((X + Y) & 3) < 2 ? clamp(m + 0.2) : clamp(m - 0.2); }
@@ -2266,7 +2334,7 @@ window.PL = window.PL || {};
     name: 'Liquid metal', cat: 'Materials', desc: 'Molten chrome that ripples and reflects.',
     params: [P.stops('chrome'), P.int('sx', 'Scale x', 1, 16, 4), P.int('sy', 'Scale y', 1, 8, 2), P.range('warp', 'Melt', 0, 1.5, 0.01, 0.6), P.range('flow', 'Flow', 0, 2, 0.05, 0.7), P.speed(1), P.seed(53)],
     sample(u, v, t, p, o) {
-      const [ox, oy] = flow(t, p);
+      flow(t, p); const ox = p._fx, oy = p._fy;
       const n = fbm(u * p.sx + ox, v * p.sy + oy, p.sx, p.sy, 4, p.seed);
       return lutAt(p._stops, clamp(v + (n - 0.5) * p.warp * 1.6), o);
     },
@@ -2276,7 +2344,7 @@ window.PL = window.PL || {};
     params: [P.pal('mint'), P.color('lineColor', 'Line colour', '#e6fff4'), P.int('levels', 'Lines', 2, 40, 12), P.range('width', 'Line width', 0.01, 0.5, 0.01, 0.12), P.int('sx', 'Scale x', 1, 16, 4), P.int('sy', 'Scale y', 1, 8, 2), P.range('flow', 'Flow', 0, 2, 0.05, 0.5), P.speed(1), P.seed(61)],
     prepare: colorPrep(['lineColor']),
     sample(u, v, t, p, o) {
-      const [ox, oy] = flow(t, p);
+      flow(t, p); const ox = p._fx, oy = p._fy;
       const n = fbm(u * p.sx + ox, v * p.sy + oy, p.sx, p.sy, 4, p.seed);
       lutAt(p._stops, n, o);
       const g = fract(n * p.levels), d = Math.min(g, 1 - g);
@@ -2305,10 +2373,10 @@ window.PL = window.PL || {};
     name: 'Ripple', cat: 'Distortion', desc: 'Circular water ripples spreading from a point.',
     params: [P.range('cx', 'Centre x', 0, 1, 0.01, 0.5), P.range('cy', 'Centre y', 0, 1, 0.01, 0.5), P.int('waves', 'Rings', 1, 30, 8), P.range('amp', 'Strength (px)', 0, 10, 0.1, 2), P.speed(1)],
     run(buf, W, H, t, p) {
-      return remap(buf, W, H, (x, y) => {
+      return remap(buf, W, H, (x, y, s) => {
         const dx = x - p.cx * W, dy = y - p.cy * H, d = Math.hypot(dx, dy) + 1e-3;
         const k = p.amp * Math.sin(TAU * ((d / H) * p.waves * 0.5 - t * p.speed));
-        return [x + (dx / d) * k, y + (dy / d) * k];
+        s[0] = x + (dx / d) * k; s[1] = y + (dy / d) * k;
       });
     },
   });
@@ -2317,11 +2385,11 @@ window.PL = window.PL || {};
     params: [P.range('cx', 'Centre x', 0, 1, 0.01, 0.5), P.range('cy', 'Centre y', 0, 1, 0.01, 0.5), P.range('radius', 'Radius', 0.1, 3, 0.01, 0.8), P.range('strength', 'Strength', -1, 1, 0.01, 0.5), P.speed(0, 'speed', 'Breaths per loop')],
     run(buf, W, H, t, p) {
       const s = p.strength * (p.speed ? Math.sin(TAU * t * p.speed) : 1), R = p.radius * H * 0.5;
-      return remap(buf, W, H, (x, y) => {
+      return remap(buf, W, H, (x, y, out) => {
         const dx = x - p.cx * W, dy = y - p.cy * H, d = Math.hypot(dx, dy);
-        if (d >= R) return [x, y];
+        if (d >= R) { out[0] = x; out[1] = y; return; }
         const k = 1 - s * Math.pow(1 - d / R, 2);
-        return [p.cx * W + dx * k, p.cy * H + dy * k];
+        out[0] = p.cx * W + dx * k; out[1] = p.cy * H + dy * k;
       });
     },
   });
@@ -2330,9 +2398,9 @@ window.PL = window.PL || {};
     params: [P.range('amount', 'Strength (px)', 0, 8, 0.1, 1.5), P.int('scale', 'Scale', 1, 16, 6), P.speed(1, 'speed', 'Rise speed', 1, 8)],
     run(buf, W, H, t, p) {
       const sy = Math.max(1, Math.round(p.scale / (W / H) * 2));
-      return remap(buf, W, H, (x, y) => {
+      return remap(buf, W, H, (x, y, s) => {
         const n = vnoise((x / W) * p.scale, (y / H + t * p.speed) * sy, p.scale, sy, 5) - 0.5;
-        return [x + n * 2 * p.amount, y + n * p.amount * 0.5];
+        s[0] = x + n * 2 * p.amount; s[1] = y + n * p.amount * 0.5;
       });
     },
   });
@@ -2439,8 +2507,8 @@ window.PL = window.PL || {};
     run(buf, W, H, t, p) {
       const out = new Float32Array(buf);
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        const i = (y * W + x) * 4, n = [(y * W + wrap(x - 1, W)) * 4, (y * W + wrap(x + 1, W)) * 4, (wrap(y - 1, H) * W + x) * 4, (wrap(y + 1, H) * W + x) * 4];
-        for (let k = 0; k < 3; k++) out[i + k] = clamp(buf[i + k] + p.amount * (4 * buf[i + k] - buf[n[0] + k] - buf[n[1] + k] - buf[n[2] + k] - buf[n[3] + k]) * 0.25);
+        const i = (y * W + x) * 4, n0 = (y * W + wrap(x - 1, W)) * 4, n1 = (y * W + wrap(x + 1, W)) * 4, n2 = (wrap(y - 1, H) * W + x) * 4, n3 = (wrap(y + 1, H) * W + x) * 4;
+        for (let k = 0; k < 3; k++) out[i + k] = clamp(buf[i + k] + p.amount * (4 * buf[i + k] - buf[n0 + k] - buf[n1 + k] - buf[n2 + k] - buf[n3 + k]) * 0.25);
       }
       return out;
     },
@@ -3039,10 +3107,7 @@ window.PL = window.PL || {};
   function compileTweak(tw) {
     tw = Object.assign({}, DEFAULT_TWEAK, tw || {});
     if (!tw.hue && tw.sat === 1 && !tw.bright && tw.contrast === 1 && !tw.tintAmt) return null;
-    const a = (tw.hue * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
-    const m = [0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.928,
-      0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.14, 0.072 - c * 0.072 - s * 0.283,
-      0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072];
+    const m = PL.fx.hueMatrix(tw.hue);
     const tint = PL.hexToRgb(tw.tint).map((x) => x / 255);
     return (o) => {
       let r = o[0], g = o[1], b = o[2];
@@ -3869,11 +3934,13 @@ window.PL = window.PL || {};
 
 </script>
   <script>
-/* cyex paints: editor wiring for static (7TV gradient) and animated (layered, exported as image) paints. */
+/* cyex paints: app state, persistence (localStorage), undo history and changed(). */
 (function (PL) {
   'use strict';
-  const { h, icon, iconBtn, btn, panel, slider, seg, checkbox, labeled, select, colorField, stopsEditor, paletteEditor, sortable, grip, group, dialog, toast, download, copyText, slug } = PL.UI;
+  const { toast } = PL.UI;
   const E = PL.Engine, Paint = PL.Paint, clone = PL.clone;
+  const A = (PL.App = PL.App || {});
+
   PL.imageCache = {};
 
   // =====================================================================================
@@ -3893,14 +3960,14 @@ window.PL = window.PL || {};
   });
   // Anything loaded (saved state, imports, dropped files) goes through sanitizeDoc, which clamps
   // every value to what the editor can make and drops unknown layer types (reported to the user).
-  let pendingNotice = null;
+  A.pendingNotice = null;
   function healDoc(doc, quiet) {
     const { doc: d, dropped } = E.sanitizeDoc(doc);
     if (dropped && !quiet) toastLater(`Skipped ${dropped} layer${dropped > 1 ? 's' : ''} this version doesn't know.`);
     return d;
   }
-  function toastLater(msg, kind = 'info') { if (typeof toast === 'function' && document.getElementById('toasts')) toast(msg, kind); else pendingNotice = [msg, kind]; }
-  let state = defaultState();
+  function toastLater(msg, kind = 'info') { if (typeof toast === 'function' && document.getElementById('toasts')) toast(msg, kind); else A.pendingNotice = [msg, kind]; }
+  A.state = defaultState();
   try {
     let raw = null;
     try { raw = localStorage.getItem(KEY); } catch (_) { raw = null; } // storage blocked: nothing saved, not broken
@@ -3910,26 +3977,26 @@ window.PL = window.PL || {};
       next.anim = healDoc(next.anim, true);
       next.static = Paint.normalize(next.static);
       E.compile(next.anim); // throws here, not on every frame, if something is still wrong
-      state = next;
+      A.state = next;
     }
   } catch (e) {
     // a broken saved state must not brick the app: keep a copy and start fresh
     try { localStorage.setItem(KEY + '.broken', localStorage.getItem(KEY) || ''); } catch (_) {}
-    state = defaultState();
-    pendingNotice = ['Your last saved paint couldn’t be loaded, so a fresh one is open. A copy was kept in this browser.', 'error'];
+    A.state = defaultState();
+    A.pendingNotice = ['Your last saved paint couldn’t be loaded, so a fresh one is open. A copy was kept in this browser.', 'error'];
   }
-  state.anim = healDoc(state.anim, true);
-  state.static = Paint.normalize(state.static);
+  A.state.anim = healDoc(A.state.anim, true);
+  A.state.static = Paint.normalize(A.state.static);
 
   // One place that opens any JSON: a 7TV paint, or a cyex paints project.
   function loadJson(obj) {
     if (obj && obj.cyexPaintProject) {
-      state.anim = healDoc(obj.doc); state.mode = 'anim'; state.sel = null;
-      cacheDocImages(state.anim);
+      A.state.anim = healDoc(obj.doc); A.state.mode = 'anim'; A.state.sel = null;
+      A.cacheDocImages(A.state.anim);
       return 'Project opened.';
     }
     const res = Paint.normalize(obj, true);
-    state.static = res.paint; state.mode = 'static';
+    A.state.static = res.paint; A.state.mode = 'static';
     return res.warnings.length ? 'Paint imported. ' + res.warnings.join(' ') : 'Paint imported.';
   }
 
@@ -3937,14 +4004,14 @@ window.PL = window.PL || {};
   function save() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      try { localStorage.setItem(KEY, JSON.stringify(state)); }
+      try { localStorage.setItem(KEY, JSON.stringify(A.state)); }
       catch (e) { // images can blow the quota; save without them
-        try { const s = clone(state); s.anim.layers.forEach((l) => { if (l.params && l.params.src) l.params.src = ''; }); localStorage.setItem(KEY, JSON.stringify(s)); } catch (_) {}
+        try { const s = clone(A.state); s.anim.layers.forEach((l) => { if (l.params && l.params.src) l.params.src = ''; }); localStorage.setItem(KEY, JSON.stringify(s)); } catch (_) {}
       }
     }, 300);
   }
 
-  const snap = () => JSON.stringify({ mode: state.mode, static: state.static, anim: state.anim });
+  const snap = () => JSON.stringify({ mode: A.state.mode, static: A.state.static, anim: A.state.anim });
   const hist = { past: [], future: [], last: snap() };
   let commitTimer = 0;
   function commit() {
@@ -3957,9 +4024,9 @@ window.PL = window.PL || {};
   }
   function restore(s) {
     const o = JSON.parse(s);
-    state.mode = o.mode; state.static = o.static; state.anim = o.anim;
+    A.state.mode = o.mode; A.state.static = o.static; A.state.anim = o.anim;
     hist.last = s;
-    renderAll(); save(); updateUndo();
+    A.renderAll(); save(); updateUndo();
   }
   const undo = () => { if (!hist.past.length) return; commit(); if (!hist.past.length) return; hist.future.push(hist.last); restore(hist.past.pop()); };
   const redo = () => { commit(); if (!hist.future.length) return; hist.past.push(hist.last); restore(hist.future.pop()); };
@@ -3967,9 +4034,9 @@ window.PL = window.PL || {};
 
   // Every edit calls changed(); commit=true for discrete actions, sliders commit on release.
   function changed(doCommit) {
-    if (state.mode === 'anim') { rt.dirty = true; scheduleThumbs(); }
-    else updateStaticPreview();
-    updateOutput();
+    if (A.state.mode === 'anim') { A.rt.dirty = true; A.scheduleThumbs(); }
+    else A.updateStaticPreview();
+    A.updateOutput();
     save();
     clearTimeout(commitTimer);
     if (doCommit) commit(); else commitTimer = setTimeout(commit, 700);
@@ -3977,35 +4044,15 @@ window.PL = window.PL || {};
 
   const $ = (s, r = document) => r.querySelector(s);
 
-  // =====================================================================================
-  // Header
-  // =====================================================================================
-  const modeSeg = seg([['static', 'Static'], ['anim', 'Animated']], state.mode, (m) => { state.mode = m; renderAll(); commit(); }, 'Paint type');
-  $('#modeSeg').replaceWith(Object.assign(modeSeg, { id: 'modeSeg' }));
-  $('#undoBtn').append(icon('undo')); $('#undoBtn').onclick = undo;
-  $('#redoBtn').append(icon('redo')); $('#redoBtn').onclick = redo;
-  $('#presetsBtn').append(icon('sparkles'), h('span', { class: 'lbl' }, 'Presets'));
-  $('#presetsBtn').onclick = openPresets;
-  const themeBtn = $('#themeBtn');
-  const paintTheme = () => { themeBtn.textContent = ''; themeBtn.append(icon(document.documentElement.dataset.theme === 'light' ? 'moon' : 'sun')); };
-  themeBtn.onclick = () => {
-    const go = () => {
-      const light = document.documentElement.dataset.theme !== 'light';
-      if (light) document.documentElement.dataset.theme = 'light'; else delete document.documentElement.dataset.theme;
-      try { localStorage.setItem('cyexTheme', light ? 'light' : 'dark'); } catch (e) {}
-      $('meta[name="theme-color"]').content = light ? '#f3f3f4' : '#1e1f23';
-      paintTheme();
-    };
-    if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(go); else go();
-  };
-  paintTheme();
+  Object.assign(A, { loadJson, save, commit, undo, redo, updateUndo, changed, $ });
+})(window.PL);
 
-  document.addEventListener('keydown', (e) => {
-    const typing = e.target.closest && e.target.closest('input, textarea, [contenteditable]');
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); }
-    else if (e.key === ' ' && !e.defaultPrevented && state.mode === 'anim' && !typing && !e.target.closest('button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); togglePlay(); }
-  });
+</script>
+  <script>
+/* cyex paints: painted-name rendering on canvas, matching the 7TV extension. */
+(function (PL) {
+  'use strict';
+  const A = (PL.App = PL.App || {});
 
   // =====================================================================================
   // Painted-name rendering (canvas), matching the 7TV extension:
@@ -4052,11 +4099,23 @@ window.PL = window.PL || {};
     paintName(ctx, Math.round(pad * k), Math.round(pad * k), text, px, tex, color, shadows, k);
   }
 
+  Object.assign(A, { measure, shadowPad, paintName, drawNameCanvas });
+})(window.PL);
+
+</script>
+  <script>
+/* cyex paints: shared editors, the static editor, the preview panel, static export and import. */
+(function (PL) {
+  'use strict';
+  const { h, icon, iconBtn, btn, panel, slider, seg, checkbox, labeled, colorField, stopsEditor, sortable, grip, dialog, toast, download, copyText, slug } = PL.UI;
+  const E = PL.Engine, Paint = PL.Paint, clone = PL.clone;
+  const A = (PL.App = PL.App || {});
+
   // =====================================================================================
   // Shared editors
   // =====================================================================================
   function nameField(obj) {
-    const inp = h('input', { class: 'field', value: obj.name, maxlength: 64, 'aria-label': 'Paint name', oninput: () => { obj.name = inp.value; changed(false); }, onchange: () => commit() });
+    const inp = h('input', { class: 'field', value: obj.name, maxlength: 64, 'aria-label': 'Paint name', oninput: () => { obj.name = inp.value; A.changed(false); }, onchange: () => A.commit() });
     return labeled('Paint name', inp);
   }
 
@@ -4068,32 +4127,47 @@ window.PL = window.PL || {};
       list.forEach((s, i) => {
         const { hex, alpha } = PL.decToHexAlpha(s.color);
         body.append(h('div', { class: 'shadow-row sortable-item' }, grip(`Move shadow ${i + 1}`),
-          slider('X', s.x_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.x_offset = v; changed(false); }, onCommit: () => commit() }),
-          slider('Y', s.y_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.y_offset = v; changed(false); }, onCommit: () => commit() }),
-          slider('Blur', s.radius, { min: 0, max: 20, step: 0.5, unit: 'px', onInput: (v) => { s.radius = v; changed(false); }, onCommit: () => commit() }),
-          iconBtn('trash', `Remove shadow ${i + 1}`, () => { list.splice(i, 1); render(); changed(true); }, { cls: 'sm danger' }),
-          colorField(hex, alpha, (hx, a, c) => { s.color = PL.hexAlphaToDec(hx, a); changed(c); }, { label: `Shadow ${i + 1}` })));
+          slider('X', s.x_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.x_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
+          slider('Y', s.y_offset, { min: -10, max: 10, step: 0.5, unit: 'px', onInput: (v) => { s.y_offset = v; A.changed(false); }, onCommit: () => A.commit() }),
+          slider('Blur', s.radius, { min: 0, max: 20, step: 0.5, unit: 'px', onInput: (v) => { s.radius = v; A.changed(false); }, onCommit: () => A.commit() }),
+          iconBtn('trash', `Remove shadow ${i + 1}`, () => { list.splice(i, 1); render(); A.changed(true); }, { cls: 'sm danger' }),
+          colorField(hex, alpha, (hx, a, c) => { s.color = PL.hexAlphaToDec(hx, a); A.changed(c); }, { label: `Shadow ${i + 1}` })));
       });
     };
     render();
-    sortable(body, (from, to) => { const [x] = list.splice(from, 1); list.splice(to, 0, x); render(); changed(true); });
-    const add = btn('Add shadow', () => { list.push({ x_offset: 0, y_offset: 0, radius: 2, color: PL.hexAlphaToDec('#000000', 0.8) }); render(); changed(true); }, 'secondary small', 'plus');
+    sortable(body, (from, to) => { const [x] = list.splice(from, 1); list.splice(to, 0, x); render(); A.changed(true); });
+    const add = btn('Add shadow', () => { list.push({ x_offset: 0, y_offset: 0, radius: 2, color: PL.hexAlphaToDec('#000000', 0.8) }); render(); A.changed(true); }, 'secondary small', 'plus');
     return panel('Shadows', [body, h('div', { class: 'row' }, add)], [], { count: list.length || null });
+  }
+
+  function tweakControls(tw, hint) {
+    const on = (v) => A.changed(false), done = () => A.changed(true);
+    return [
+      h('p', { class: 'hint' }, hint),
+      slider('Hue shift', tw.hue, { min: -180, max: 180, step: 1, unit: '°', onInput: (v) => { tw.hue = v; on(); }, onCommit: done }),
+      h('div', { class: 'split' },
+        slider('Saturation', tw.sat, { min: 0, max: 2, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { tw.sat = v; on(); }, onCommit: done }),
+        slider('Brightness', tw.bright, { min: -0.5, max: 0.5, step: 0.01, scale: 100, decimals: 0, onInput: (v) => { tw.bright = v; on(); }, onCommit: done }),
+        slider('Contrast', tw.contrast, { min: 0.2, max: 2, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { tw.contrast = v; on(); }, onCommit: done }),
+        slider('Tint amount', tw.tintAmt, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { tw.tintAmt = v; on(); }, onCommit: done })),
+      labeled('Tint colour', colorField(tw.tint, null, (hx, a, c) => { tw.tint = hx; c ? done() : on(); }, { label: 'Tint colour' })),
+      h('div', null, btn('Reset colours', () => { Object.assign(tw, E.DEFAULT_TWEAK); A.renderEditor(); done(); }, 'ghost small', 'reset')),
+    ];
   }
 
   // =====================================================================================
   // Static editor
   // =====================================================================================
   function renderStaticEditor(root) {
-    const p = state.static;
+    const p = A.state.static;
     const isUrl = p.function === 'URL';
-    const typeCtl = seg([['LINEAR_GRADIENT', 'Linear'], ['RADIAL_GRADIENT', 'Radial'], ['URL', 'Image URL']], p.function, (v) => { p.function = v; renderEditor(); changed(true); }, 'Function');
+    const typeCtl = seg([['LINEAR_GRADIENT', 'Linear'], ['RADIAL_GRADIENT', 'Radial'], ['URL', 'Image URL']], p.function, (v) => { p.function = v; A.renderEditor(); A.changed(true); }, 'Function');
     const paintBody = [nameField(p), labeled('Function', typeCtl)];
-    if (p.function === 'LINEAR_GRADIENT') paintBody.push(slider('Angle', p.angle, { min: 0, max: 360, step: 1, unit: '°', onInput: (v) => { p.angle = v; changed(false); }, onCommit: () => commit() }));
-    if (p.function === 'RADIAL_GRADIENT') paintBody.push(labeled('Shape', seg([['circle', 'Circle'], ['ellipse', 'Ellipse']], p.shape, (v) => { p.shape = v; changed(true); }, 'Shape')));
-    if (!isUrl) paintBody.push(checkbox('Repeating gradient', p.repeat, (v) => { p.repeat = v; changed(true); }));
+    if (p.function === 'LINEAR_GRADIENT') paintBody.push(slider('Angle', p.angle, { min: 0, max: 360, step: 1, unit: '°', onInput: (v) => { p.angle = v; A.changed(false); }, onCommit: () => A.commit() }));
+    if (p.function === 'RADIAL_GRADIENT') paintBody.push(labeled('Shape', seg([['circle', 'Circle'], ['ellipse', 'Ellipse']], p.shape, (v) => { p.shape = v; A.changed(true); }, 'Shape')));
+    if (!isUrl) paintBody.push(checkbox('Repeating gradient', p.repeat, (v) => { p.repeat = v; A.changed(true); }));
     if (isUrl) {
-      const url = h('input', { class: 'field mono', value: p.image_url, placeholder: 'https://…/paint.gif', spellcheck: false, 'aria-label': 'Image URL', oninput: () => { p.image_url = url.value.trim(); changed(false); }, onchange: () => commit() });
+      const url = h('input', { class: 'field mono', value: p.image_url, placeholder: 'https://…/paint.gif', spellcheck: false, 'aria-label': 'Image URL', oninput: () => { p.image_url = url.value.trim(); A.changed(false); }, onchange: () => A.commit() });
       paintBody.push(labeled('Image URL', url), h('p', { class: 'hint' }, '7TV stretches the image over the whole name (background-size 100% 100%). Build animated images in the Animated tab.'));
     }
     root.append(panel('Paint', paintBody));
@@ -4101,7 +4175,7 @@ window.PL = window.PL || {};
       const es = Paint.editorStops(p);
       const ed = stopsEditor(es, (stops, c) => {
         p.stops = stops.map((s) => ({ at: Math.round(s.at * 10000) / 10000, color: PL.hexAlphaToDec(s.color, s.a) }));
-        changed(c);
+        A.changed(c);
       }, { palettes: true });
       root.append(panel('Colour stops', [ed], [], { count: p.stops.length }));
     }
@@ -4114,10 +4188,10 @@ window.PL = window.PL || {};
   const SIZES = [36, 24, 18];
   const CHAT = [['14:02', 'quietoak', '#1e90ff', 'that paint is clean'], ['14:02', null, null, 'thanks, made it myself'], ['14:03', 'nora_byte', '#9acd32', 'how long did the animation take']];
   function previewPanel(kind) {
-    const pv = state.preview;
-    const text = h('input', { class: 'field', value: pv.text, maxlength: 25, 'aria-label': 'Preview name', oninput: () => { pv.text = text.value || ' '; refreshPreview(); save(); } });
-    const color = colorField(pv.color, null, (hx) => { pv.color = hx; refreshPreview(); save(); }, { label: 'Name colour' });
-    const bg = seg([['dark', 'Dark chat'], ['light', 'Light chat'], ['checker', 'Transparent']], pv.bg, (v) => { pv.bg = v; box.className = 'stagebox ' + v; save(); }, 'Backdrop');
+    const pv = A.state.preview;
+    const text = h('input', { class: 'field', value: pv.text, maxlength: 25, 'aria-label': 'Preview name', oninput: () => { pv.text = text.value || ' '; refreshPreview(); A.save(); } });
+    const color = colorField(pv.color, null, (hx) => { pv.color = hx; refreshPreview(); A.save(); }, { label: 'Name colour' });
+    const bg = seg([['dark', 'Dark chat'], ['light', 'Light chat'], ['checker', 'Transparent']], pv.bg, (v) => { pv.bg = v; box.className = 'stagebox ' + v; A.save(); }, 'Backdrop');
     const box = h('div', { class: 'stagebox ' + pv.bg, id: 'stagebox' });
     const ctl = h('div', { class: 'split' }, labeled('Preview name', text), labeled('Name colour', color));
     const body = [ctl, h('p', { class: 'hint' }, 'The name colour shows through any transparent part of the paint, as it does in 7TV.'), h('div', { class: 'row' }, bg)];
@@ -4135,19 +4209,19 @@ window.PL = window.PL || {};
       chat.append(h('div', { class: 'msg' }, h('span', { class: 'ts' }, ts), nameEl, ': ' + msg));
     }
     box.append(...names, chat);
-    box.append(h('span', { class: 'sr-only' }, 'Painted name preview of ' + state.preview.text));
+    box.append(h('span', { class: 'sr-only' }, 'Painted name preview of ' + A.state.preview.text));
     return { el: p, names, chatNames, box };
   }
 
-  let pv = null; // current preview handles
-  function refreshPreview() { if (state.mode === 'static') updateStaticPreview(); else rt.redraw = true; }
+  A.pv = null; // current preview handles
+  function refreshPreview() { if (A.state.mode === 'static') updateStaticPreview(); else A.rt.redraw = true; }
 
   function updateStaticPreview() {
-    if (!pv || state.mode !== 'static') return;
-    const p = state.static, st = Paint.styleFor(p);
-    for (const el of [...pv.names, ...pv.chatNames]) {
-      el.textContent = state.preview.text;
-      el.style.color = state.preview.color;
+    if (!A.pv || A.state.mode !== 'static') return;
+    const p = A.state.static, st = Paint.styleFor(p);
+    for (const el of [...A.pv.names, ...A.pv.chatNames]) {
+      el.textContent = A.state.preview.text;
+      el.style.color = A.state.preview.color;
       el.style.backgroundImage = st.backgroundImage;
       el.style.backgroundSize = st.backgroundSize;
       el.style.filter = st.filter;
@@ -4157,44 +4231,44 @@ window.PL = window.PL || {};
   // =====================================================================================
   // Output panel (code + exports)
   // =====================================================================================
-  let codeTab = 'json';
-  let codePre = null;
+  A.codeTab = 'json';
+  A.codePre = null;
   function codeBox(getText, tabs) {
-    codePre = h('pre', { class: 'code', tabindex: '0', 'aria-label': 'Paint code' });
-    const tabSeg = seg(tabs, codeTab, (v) => { codeTab = v; updateOutput(); }, 'Code format');
+    A.codePre = h('pre', { class: 'code', tabindex: '0', 'aria-label': 'Paint code' });
+    const tabSeg = seg(tabs, A.codeTab, (v) => { A.codeTab = v; updateOutput(); }, 'Code format');
     const copyB = iconBtn('copy', 'Copy code', async () => {
-      const ok = await copyText(codePre.textContent);
+      const ok = await copyText(A.codePre.textContent);
       copyB.replaceChildren(icon(ok ? 'check' : 'copy')); copyB.style.color = ok ? 'var(--green)' : '';
       setTimeout(() => { copyB.replaceChildren(icon('copy')); copyB.style.color = ''; }, 1600);
       if (!ok) toast('Copy failed. Select the code and copy it by hand.', 'error');
     });
-    const wrap = h('div', { class: 'code-wrap' }, h('div', { class: 'code-head' }, tabSeg, h('span', { class: 'grow' }), copyB), codePre);
+    const wrap = h('div', { class: 'code-wrap' }, h('div', { class: 'code-head' }, tabSeg, h('span', { class: 'grow' }), copyB), A.codePre);
     wrap.getText = getText;
     return wrap;
   }
-  let outputGetter = null;
-  function updateOutput() { if (codePre && outputGetter) codePre.textContent = outputGetter(); }
+  A.outputGetter = null;
+  function updateOutput() { if (A.codePre && A.outputGetter) A.codePre.textContent = A.outputGetter(); }
 
   function staticOutput() {
-    const p = state.static;
-    outputGetter = () => (codeTab === 'css' ? Paint.cssText(state.static) : Paint.toJson(state.static));
-    const code = codeBox(outputGetter, [['json', '7TV JSON'], ['css', 'CSS']]);
+    const p = A.state.static;
+    A.outputGetter = () => (A.codeTab === 'css' ? Paint.cssText(A.state.static) : Paint.toJson(A.state.static));
+    const code = codeBox(A.outputGetter, [['json', '7TV JSON'], ['css', 'CSS']]);
     const importB = btn('Import JSON', openImport, 'secondary small', 'upload');
-    const dl = btn('Download JSON', () => download(new Blob([Paint.toJson(state.static)], { type: 'application/json' }), slug(state.static.name) + '.json'), 'secondary small', 'download');
-    const tw = h('input', { class: 'num', value: state.texSize[0], 'aria-label': 'PNG width (px)' }), th = h('input', { class: 'num', value: state.texSize[1], 'aria-label': 'PNG height (px)' });
-    const readSize = () => { state.texSize = [Math.max(1, Math.min(4096, parseInt(tw.value) || 256)), Math.max(1, Math.min(2048, parseInt(th.value) || 64))]; tw.value = state.texSize[0]; th.value = state.texSize[1]; save(); return state.texSize; };
+    const dl = btn('Download JSON', () => download(new Blob([Paint.toJson(A.state.static)], { type: 'application/json' }), slug(A.state.static.name) + '.json'), 'secondary small', 'download');
+    const tw = h('input', { class: 'num', value: A.state.texSize[0], 'aria-label': 'PNG width (px)' }), th = h('input', { class: 'num', value: A.state.texSize[1], 'aria-label': 'PNG height (px)' });
+    const readSize = () => { A.state.texSize = [Math.max(1, Math.min(4096, parseInt(tw.value) || 256)), Math.max(1, Math.min(2048, parseInt(th.value) || 64))]; tw.value = A.state.texSize[0]; th.value = A.state.texSize[1]; A.save(); return A.state.texSize; };
     tw.onchange = readSize; th.onchange = readSize;
-    const nsz = slider('Name size', state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { state.nameSize = v; save(); } });
+    const nsz = slider('Name size', A.state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { A.state.nameSize = v; A.save(); } });
     const pngTex = btn('Paint PNG', async () => {
       const [w, hh] = readSize();
       try { const cv = await staticTexture(p, w, hh); cv.toBlob((b) => download(b, slug(p.name) + '-paint.png')); }
       catch (e) { toast(e.message, 'error'); }
     }, 'secondary', 'image');
     const pngName = btn('Name PNG', async () => {
-      try { const cv = await staticNameCanvas(state.nameSize); cv.toBlob((b) => download(b, slug(p.name) + '-name.png')); }
+      try { const cv = await staticNameCanvas(A.state.nameSize); cv.toBlob((b) => download(b, slug(p.name) + '-name.png')); }
       catch (e) { toast(e.message, 'error'); }
     }, 'secondary', 'image');
-    const toAnim = btn('Animate this paint', () => { state.anim = staticToAnim(state.static); state.mode = 'anim'; state.sel = state.anim.layers[0] ? { kind: 'layer', id: state.anim.layers[0].id } : null; renderAll(); commit(); toast('Copied into the animated editor as a layer.', 'success'); }, 'primary', 'wand');
+    const toAnim = btn('Animate this paint', () => { A.state.anim = staticToAnim(A.state.static); A.state.mode = 'anim'; A.state.sel = A.state.anim.layers[0] ? { kind: 'layer', id: A.state.anim.layers[0].id } : null; A.renderAll(); A.commit(); toast('Copied into the animated editor as a layer.', 'success'); }, 'primary', 'wand');
     return panel('Export', [
       code, h('div', { class: 'row' }, importB, dl),
       h('div', { class: 'sub' }, h('span', { class: 'label' }, 'Images'),
@@ -4225,10 +4299,10 @@ window.PL = window.PL || {};
     return cv;
   }
   async function staticNameCanvas(px) {
-    const p = state.static, m = measure(state.preview.text, px), pad = shadowPad(p.shadows);
+    const p = A.state.static, m = A.measure(A.state.preview.text, px), pad = A.shadowPad(p.shadows);
     const tex = await staticTexture(p, m.w, m.h); // CSS gradients are laid out on the name box itself
     const cv = h('canvas', { width: m.w + pad * 2, height: m.h + pad * 2 });
-    paintName(cv.getContext('2d'), pad, pad, state.preview.text, px, tex, state.preview.color, p.shadows, 1);
+    A.paintName(cv.getContext('2d'), pad, pad, A.state.preview.text, px, tex, A.state.preview.color, p.shadows, 1);
     return cv;
   }
 
@@ -4242,8 +4316,8 @@ window.PL = window.PL || {};
       footer: [btn('Cancel', () => d.close(), 'secondary'), btn('Import', () => {
         try {
           const obj = JSON.parse(ta.value);
-          const msg = loadJson(obj);
-          d.close(); renderAll(); commit(); toast(msg, "success");
+          const msg = A.loadJson(obj);
+          d.close(); A.renderAll(); A.commit(); toast(msg, "success");
         } catch (e) { toast("Couldn’t read that JSON. Check it’s a 7TV paint or a cyex paints project.", "error"); console.warn(e); }
       }, 'primary')],
     });
@@ -4264,22 +4338,34 @@ window.PL = window.PL || {};
     return doc;
   }
 
+  Object.assign(A, { nameField, shadowsPanel, tweakControls, renderStaticEditor, previewPanel, updateStaticPreview, codeBox, updateOutput, staticOutput, loadImage, SIZES });
+})(window.PL);
+
+</script>
+  <script>
+/* cyex paints: the animated editor: layers, effects, settings panel, images and thumbnails. */
+(function (PL) {
+  'use strict';
+  const { h, icon, iconBtn, btn, panel, slider, seg, checkbox, labeled, select, colorField, stopsEditor, paletteEditor, sortable, grip, group, toast } = PL.UI;
+  const E = PL.Engine, clone = PL.clone;
+  const A = (PL.App = PL.App || {});
+  const $ = A.$; // store.js loads first
+
   // =====================================================================================
   // Animated editor
   // =====================================================================================
-  const rt = { cp: null, cache: [], dirty: true, playing: !matchMedia('(prefers-reduced-motion: reduce)').matches, frame: 0, start: performance.now(), shown: -1, redraw: true, texCv: null, ui: null };
   const FPS = [[10, '10'], [20, '20'], [25, '25'], [33, '33'], [50, '50']];
 
   const findSel = () => {
-    const s = state.sel; if (!s) return null;
-    const list = s.kind === 'layer' ? state.anim.layers : state.anim.effects;
+    const s = A.state.sel; if (!s) return null;
+    const list = s.kind === 'layer' ? A.state.anim.layers : A.state.anim.effects;
     const item = list.find((x) => x.id === s.id);
     return item ? { kind: s.kind, item, list } : null;
   };
 
   function renderAnimEditor(root) {
-    const d = state.anim;
-    if (!findSel()) state.sel = d.layers.length ? { kind: 'layer', id: d.layers[d.layers.length - 1].id } : d.effects.length ? { kind: 'effect', id: d.effects[0].id } : null;
+    const d = A.state.anim;
+    if (!findSel()) A.state.sel = d.layers.length ? { kind: 'layer', id: d.layers[d.layers.length - 1].id } : d.effects.length ? { kind: 'effect', id: d.effects[0].id } : null;
     root.classList.add('anim');
     const colA = h('div', { class: 'col' }), colB = h('div', { class: 'col settings-col' });
     root.append(colA, colB);
@@ -4292,24 +4378,24 @@ window.PL = window.PL || {};
     sortable(layerList, (from, to, kb) => {
       const n = d.layers.length, a = n - 1 - from, b = n - 1 - to;
       const [it] = d.layers.splice(a, 1); d.layers.splice(b, 0, it);
-      renderEditor(); changed(true);
+      A.renderEditor(); A.changed(true);
       if (kb) $(`#editor [data-id="${it.id}"] .grip`)?.focus();
     });
     colA.append(panel('Layers', [layerList, h('div', { class: 'row' },
-      btn('Add layer', () => openLibrary('layer'), 'secondary small', 'plus'),
-      btn('Add element', () => openLibrary('layer', 'Scene elements'), 'ghost small', 'sparkles'))], [], { count: d.layers.length }));
+      btn('Add layer', () => A.openLibrary('layer'), 'secondary small', 'plus'),
+      btn('Add element', () => A.openLibrary('layer', 'Scene elements'), 'ghost small', 'sparkles'))], [], { count: d.layers.length }));
 
     const fxList = h('div', { class: 'list', role: 'list', 'aria-label': 'Effects, applied top to bottom' });
     if (!d.effects.length) fxList.append(h('div', { class: 'empty' }, icon('fx'), h('span', null, 'Effects run on the finished image, top to bottom: lighting, 3D, distortion, colour.')));
     for (const e of d.effects) fxList.append(listItem(e, 'effect', d.effects));
     sortable(fxList, (from, to, kb) => {
       const [it] = d.effects.splice(from, 1); d.effects.splice(to, 0, it);
-      renderEditor(); changed(true);
+      A.renderEditor(); A.changed(true);
       if (kb) $(`#editor [data-id="${it.id}"] .grip`)?.focus();
     });
-    colA.append(panel('Effects', [fxList, h('div', { class: 'row' }, btn('Add effect', () => openLibrary('effect'), 'secondary small', 'plus'))], [], { count: d.effects.length }));
+    colA.append(panel('Effects', [fxList, h('div', { class: 'row' }, btn('Add effect', () => A.openLibrary('effect'), 'secondary small', 'plus'))], [], { count: d.effects.length }));
     colA.append(paintPanel(d));
-    colA.append(shadowsPanel(d.shadows));
+    colA.append(A.shadowsPanel(d.shadows));
 
     const s = findSel();
     colB.append(s ? settingsPanel(s) : panel('Settings', [h('div', { class: 'empty' }, icon('layers'), h('span', null, 'Select a layer or effect to change it.'))]));
@@ -4321,50 +4407,35 @@ window.PL = window.PL || {};
     const setInfo = () => { info.textContent = `${E.frameCount(d)} frames · ${PL.fmtNum(d.duration, 1)} s · ${Math.round(100 / d.fps)} cs per frame`; };
     setInfo();
     const wIn = h('input', { class: 'num', value: d.width, 'aria-label': 'Width (px)' }), hIn = h('input', { class: 'num', value: d.height, 'aria-label': 'Height (px)' });
-    const size = () => { d.width = Math.max(8, Math.min(1024, parseInt(wIn.value) || 256)); d.height = Math.max(8, Math.min(512, parseInt(hIn.value) || 64)); wIn.value = d.width; hIn.value = d.height; changed(true); scheduleThumbs(true); };
+    const size = () => { d.width = Math.max(8, Math.min(1024, parseInt(wIn.value) || 256)); d.height = Math.max(8, Math.min(512, parseInt(hIn.value) || 64)); wIn.value = d.width; hIn.value = d.height; A.changed(true); scheduleThumbs(true); };
     wIn.onchange = size; hIn.onchange = size;
-    const sizePresets = seg([['256x64', '256×64'], ['320x64', '320×64'], ['384x96', '384×96'], ['512x128', '512×128']], `${d.width}x${d.height}`, (v) => { const [a, b] = v.split('x').map(Number); d.width = a; d.height = b; wIn.value = a; hIn.value = b; changed(true); scheduleThumbs(true); }, 'Size presets');
+    const sizePresets = seg([['256x64', '256×64'], ['320x64', '320×64'], ['384x96', '384×96'], ['512x128', '512×128']], `${d.width}x${d.height}`, (v) => { const [a, b] = v.split('x').map(Number); d.width = a; d.height = b; wIn.value = a; hIn.value = b; A.changed(true); scheduleThumbs(true); }, 'Size presets');
     d.tweak = Object.assign({}, E.DEFAULT_TWEAK, d.tweak || {});
     return panel('Paint', [
-      nameField(d),
+      A.nameField(d),
       group('Size and timing', [
         h('div', { class: 'ctl' }, h('div', { class: 'top' }, h('span', { class: 'label' }, 'Size'), wIn, h('span', { class: 'unit' }, '×'), hIn, h('span', { class: 'unit' }, 'px')), sizePresets,
           h('p', { class: 'hint' }, '7TV stretches the image across the name, so a wide strip works best.')),
-        labeled('Frames per second', seg(FPS, d.fps, (v) => { d.fps = v; setInfo(); changed(true); }, 'Frames per second')),
-        slider('Loop length', d.duration, { min: 0.4, max: 8, step: 0.1, unit: 's', onInput: (v) => { d.duration = v; setInfo(); changed(false); }, onCommit: () => commit() }),
+        labeled('Frames per second', seg(FPS, d.fps, (v) => { d.fps = v; setInfo(); A.changed(true); }, 'Frames per second')),
+        slider('Loop length', d.duration, { min: 0.4, max: 8, step: 0.1, unit: 's', onInput: (v) => { d.duration = v; setInfo(); A.changed(false); }, onCommit: () => A.commit() }),
         info,
       ], { open: true }),
-      group('Recolour everything', tweakControls(d.tweak, 'Shifts the colours of the whole paint, after all layers and effects.')),
+      group('Recolour everything', A.tweakControls(d.tweak, 'Shifts the colours of the whole paint, after all layers and effects.')),
     ]);
   }
 
-  function tweakControls(tw, hint) {
-    const on = (v) => changed(false), done = () => changed(true);
-    return [
-      h('p', { class: 'hint' }, hint),
-      slider('Hue shift', tw.hue, { min: -180, max: 180, step: 1, unit: '°', onInput: (v) => { tw.hue = v; on(); }, onCommit: done }),
-      h('div', { class: 'split' },
-        slider('Saturation', tw.sat, { min: 0, max: 2, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { tw.sat = v; on(); }, onCommit: done }),
-        slider('Brightness', tw.bright, { min: -0.5, max: 0.5, step: 0.01, scale: 100, decimals: 0, onInput: (v) => { tw.bright = v; on(); }, onCommit: done }),
-        slider('Contrast', tw.contrast, { min: 0.2, max: 2, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { tw.contrast = v; on(); }, onCommit: done }),
-        slider('Tint amount', tw.tintAmt, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { tw.tintAmt = v; on(); }, onCommit: done })),
-      labeled('Tint colour', colorField(tw.tint, null, (hx, a, c) => { tw.tint = hx; c ? done() : on(); }, { label: 'Tint colour' })),
-      h('div', null, btn('Reset colours', () => { Object.assign(tw, E.DEFAULT_TWEAK); renderEditor(); done(); }, 'ghost small', 'reset')),
-    ];
-  }
-
   function listItem(item, kind, list) {
-    const isSel = state.sel && state.sel.id === item.id;
+    const isSel = A.state.sel && A.state.sel.id === item.id;
     const def = kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
     const thumb = h('canvas', { class: 'thumb', width: 88, height: 22, 'data-thumb': item.id, 'aria-hidden': 'true' });
     const idx = list.indexOf(item);
-    const select_ = () => { if (!(state.sel && state.sel.id === item.id)) { state.sel = { kind, id: item.id }; renderEditor(); } };
+    const select_ = () => { if (!(A.state.sel && A.state.sel.id === item.id)) { A.state.sel = { kind, id: item.id }; A.renderEditor(); } };
     // the name is the row's real control: a named button that selects (Enter or Space), F2 or double-click renames, Delete removes
     const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-current': isSel ? 'true' : null, 'aria-describedby': null, onclick: () => select_() }, item.name || def.name);
     nameEl.addEventListener('dblclick', () => {
       const inp = h('input', { class: 'field rename', value: item.name || def.name, maxlength: 64, 'aria-label': 'Rename' });
       let finished = false;
-      const done = (ok) => { if (finished) return; finished = true; if (ok && inp.value.trim()) { item.name = inp.value.trim(); changed(true); } renderEditor(); focusItem(item.id); };
+      const done = (ok) => { if (finished) return; finished = true; if (ok && inp.value.trim()) { item.name = inp.value.trim(); A.changed(true); } A.renderEditor(); A.focusItem(item.id); };
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); e.stopPropagation(); });
       inp.addEventListener('blur', () => done(true));
       nameEl.replaceWith(inp); inp.focus(); inp.select();
@@ -4385,10 +4456,10 @@ window.PL = window.PL || {};
     grip(`Move ${item.name || def.name}`), thumb, nameEl,
     meta.length ? h('span', { class: 'meta' }, meta.join(' · ')) : null,
     h('span', { class: 'tools' },
-      iconBtn(item.visible ? 'eye' : 'eyeOff', 'Visible', () => { item.visible = !item.visible; renderEditor(); changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(item.visible), 'data-tip': item.visible ? 'Hide' : 'Show' } }),
-      iconBtn('dup', 'Duplicate', () => { const c = clone(item); c.id = PL.uid(kind[0]); list.splice(idx + 1, 0, c); state.sel = { kind, id: c.id }; renderEditor(); changed(true); }, { cls: 'sm' }),
+      iconBtn(item.visible ? 'eye' : 'eyeOff', 'Visible', () => { item.visible = !item.visible; A.renderEditor(); A.changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(item.visible), 'data-tip': item.visible ? 'Hide' : 'Show' } }),
+      iconBtn('dup', 'Duplicate', () => { const c = clone(item); c.id = PL.uid(kind[0]); list.splice(idx + 1, 0, c); A.state.sel = { kind, id: c.id }; A.renderEditor(); A.changed(true); }, { cls: 'sm' }),
       iconBtn('trash', 'Delete', () => remove(), { cls: 'sm danger', attrs: { 'data-hint': 'Delete key' } })));
-    function remove() { list.splice(list.indexOf(item), 1); if (isSel) state.sel = null; renderEditor(); changed(true); toast(`Removed ${item.name || def.name}. Ctrl+Z brings it back.`); }
+    function remove() { list.splice(list.indexOf(item), 1); if (isSel) A.state.sel = null; A.renderEditor(); A.changed(true); toast(`Removed ${item.name || def.name}. Ctrl+Z brings it back.`); }
     return el;
   }
 
@@ -4414,7 +4485,7 @@ window.PL = window.PL || {};
       case 'image': {
         const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', class: 'sr-only', onchange: async () => {
           const f = file.files[0]; if (!f) return;
-          try { params[pd.k] = await fileToDataUrl(f, 512); await cacheImage(params[pd.k]); onCommit(); renderEditor(); }
+          try { params[pd.k] = await fileToDataUrl(f, 512); await cacheImage(params[pd.k]); onCommit(); A.renderEditor(); }
           catch (e) { toast('Could not read that image.', 'error'); }
         } });
         return labeled(pd.l, h('div', { class: 'row' }, h('label', { class: 'btn secondary small' }, icon('image'), v ? 'Replace image' : 'Choose image', file),
@@ -4432,13 +4503,13 @@ window.PL = window.PL || {};
     const { item, kind } = s;
     const def = kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
     let vis = visibleKeys(def, item.params);
-    const refreshIfNeeded = () => { const nv = visibleKeys(def, item.params); if (nv !== vis) { vis = nv; const old = $('#settingsPanel'); if (old) { const fd = focusDescriptor(); old.replaceWith(settingsPanel(s)); restoreFocus(fd); } } };
-    const onInput = () => changed(false), onCommit = () => { changed(true); refreshIfNeeded(); };
-    const nameIn = h('input', { class: 'field', value: item.name || def.name, 'aria-label': 'Name', 'data-sel-first': '', oninput: () => { item.name = nameIn.value; const n = $(`[data-id="${item.id}"] .name`); if (n) n.textContent = item.name; changed(false); }, onchange: () => commit() });
+    const refreshIfNeeded = () => { const nv = visibleKeys(def, item.params); if (nv !== vis) { vis = nv; const old = $('#settingsPanel'); if (old) { const fd = A.focusDescriptor(); old.replaceWith(settingsPanel(s)); A.restoreFocus(fd); } } };
+    const onInput = () => A.changed(false), onCommit = () => { A.changed(true); refreshIfNeeded(); };
+    const nameIn = h('input', { class: 'field', value: item.name || def.name, 'aria-label': 'Name', 'data-sel-first': '', oninput: () => { item.name = nameIn.value; const n = $(`[data-id="${item.id}"] .name`); if (n) n.textContent = item.name; A.changed(false); }, onchange: () => A.commit() });
     const top = [h('p', { class: 'hint' }, def.desc), labeled('Name', nameIn)];
     if (kind === 'layer') {
       top.push(h('div', { class: 'split' },
-        labeled('Blend', select(PL.BLENDS, item.blend, (v) => { item.blend = v; renderEditor(); changed(true); }, 'Blend')),
+        labeled('Blend', select(PL.BLENDS, item.blend, (v) => { item.blend = v; A.renderEditor(); A.changed(true); }, 'Blend')),
         slider('Opacity', item.opacity, { min: 0, max: 1, step: 0.01, scale: 100, unit: '%', decimals: 0, onInput: (v) => { item.opacity = v; onInput(); }, onCommit })));
     }
     const groups = new Map();
@@ -4467,12 +4538,12 @@ window.PL = window.PL || {};
         checkbox('Wrap around the edges when moved', xf.tile, (v) => { xf.tile = v; onCommit(); }),
         h('p', { class: 'hint' }, 'Moves the whole layer. Scroll and spin use whole numbers so the loop stays seamless.')]));
       item.tweak = Object.assign({}, E.DEFAULT_TWEAK, item.tweak || {});
-      body.push(group('Colour tweaks', tweakControls(item.tweak, 'Shift the colours of just this layer.')));
+      body.push(group('Colour tweaks', A.tweakControls(item.tweak, 'Shift the colours of just this layer.')));
     }
     const hasXY = def.params.some((pd) => pd.k === 'x') || def.params.some((pd) => pd.k === 'cx' && /^Centre/.test(pd.l));
     if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it.'));
-    const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); renderEditor(); changed(true); }, { cls: 'sm' });
-    const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); state.sel = { kind, id: c.id }; renderEditor(); changed(true); }, { cls: 'sm' });
+    const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); A.renderEditor(); A.changed(true); }, { cls: 'sm' });
+    const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); A.state.sel = { kind, id: c.id }; A.renderEditor(); A.changed(true); }, { cls: 'sm' });
     // One toggle: collapses every group while any is open, expands them all once all are closed.
     const heads = () => [...sec.querySelectorAll('.ghead')];
     const anyOpen = () => heads().some((hd) => hd.getAttribute('aria-expanded') === 'true');
@@ -4497,7 +4568,7 @@ window.PL = window.PL || {};
       const r = new FileReader();
       r.onload = async () => {
         try {
-          const im = await loadImage(r.result);
+          const im = await A.loadImage(r.result);
           const k = Math.min(1, max / Math.max(im.width, im.height));
           const cv = h('canvas', { width: Math.max(1, Math.round(im.width * k)), height: Math.max(1, Math.round(im.height * k)) });
           cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
@@ -4509,7 +4580,7 @@ window.PL = window.PL || {};
   }
   async function cacheImage(src) {
     if (!src || PL.imageCache[src]) return;
-    const im = await loadImage(src);
+    const im = await A.loadImage(src);
     const cv = h('canvas', { width: im.width, height: im.height }), ctx = cv.getContext('2d');
     ctx.drawImage(im, 0, 0);
     PL.imageCache[src] = { w: im.width, h: im.height, data: ctx.getImageData(0, 0, im.width, im.height).data };
@@ -4517,15 +4588,15 @@ window.PL = window.PL || {};
   async function cacheDocImages(doc) {
     const srcs = doc.layers.filter((l) => l.type === 'image' && l.params.src).map((l) => l.params.src);
     await Promise.all(srcs.map((s) => cacheImage(s).catch(() => {})));
-    if (srcs.length) { rt.dirty = true; scheduleThumbs(true); }
+    if (srcs.length) { A.rt.dirty = true; scheduleThumbs(true); }
   }
 
   // ---- thumbnails ----
   let thumbTimer = 0;
   function scheduleThumbs(now) { clearTimeout(thumbTimer); thumbTimer = setTimeout(drawThumbs, now ? 0 : 250); }
   function drawThumbs() {
-    if (state.mode !== 'anim') return;
-    const d = state.anim, t = 0.15;
+    if (A.state.mode !== 'anim') return;
+    const d = A.state.anim, t = 0.15;
     for (const cv of document.querySelectorAll('[data-thumb]')) {
       const id = cv.dataset.thumb;
       const l = d.layers.find((x) => x.id === id), e = d.effects.find((x) => x.id === id);
@@ -4543,11 +4614,26 @@ window.PL = window.PL || {};
     }
   }
 
+  Object.assign(A, { findSel, renderAnimEditor, settingsPanel, fileToDataUrl, cacheImage, cacheDocImages, scheduleThumbs });
+})(window.PL);
+
+</script>
+  <script>
+/* cyex paints: animated preview playback, drag-to-place and file drop. */
+(function (PL) {
+  'use strict';
+  const { h, icon, iconBtn, toast } = PL.UI;
+  const E = PL.Engine;
+  const A = (PL.App = PL.App || {});
+  const $ = A.$; // store.js loads first
+
   // ---- animated preview + playback ----
+  const rt = { cp: null, cache: [], dirty: true, playing: !matchMedia('(prefers-reduced-motion: reduce)').matches, frame: 0, start: performance.now(), shown: -1, redraw: true, texCv: null, ui: null };
+
   function animStage(root) {
-    const p = previewPanel('anim');
-    pv = p;
-    const d = state.anim;
+    const p = A.previewPanel('anim');
+    A.pv = p;
+    const d = A.state.anim;
     rt.texCv = h('canvas', { class: 'tex', width: d.width, height: d.height, 'aria-label': 'Paint image, current frame', role: 'img' });
     const playB = iconBtn(rt.playing ? 'pause' : 'play', rt.playing ? 'Pause' : 'Play', togglePlay, { attrs: { 'data-hint': 'Space' } });
     const scrub = h('input', { type: 'range', min: 0, max: E.frameCount(d) - 1, step: 1, value: 0, 'aria-label': 'Frame' });
@@ -4555,19 +4641,19 @@ window.PL = window.PL || {};
     const fno = h('span', { class: 'frameno' });
     p.el.querySelector('.body').append(h('div', { class: 'sub' }, h('span', { class: 'label' }, 'Paint image'), rt.texCv, h('div', { class: 'transport' }, playB, scrub, fno)));
     rt.ui = { playB, scrub, fno };
-    root.append(p.el, animOutput());
+    root.append(p.el, A.animOutput());
     rt.redraw = true; rt.dirty = true;
     enableCanvasDrag(rt.texCv, (cv, e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; });
-    pv.names.forEach((cv) => enableCanvasDrag(cv, (c, e) => {
+    A.pv.names.forEach((cv) => enableCanvasDrag(cv, (c, e) => {
       // the name canvas has shadow padding around the text box the paint is stretched over
-      const r = c.getBoundingClientRect(), pad = shadowPad(state.anim.shadows);
+      const r = c.getBoundingClientRect(), pad = A.shadowPad(A.state.anim.shadows);
       return [(e.clientX - r.left - pad) / (r.width - 2 * pad), (e.clientY - r.top - pad) / (r.height - 2 * pad)];
     }));
   }
 
   // Drag on the paint image (or a big preview name) to place the selected element or centre point.
   function dragTarget() {
-    const s = findSel(); if (!s) return null;
+    const s = A.findSel(); if (!s) return null;
     const def = s.kind === 'layer' ? PL.LAYERS[s.item.type] : PL.EFFECTS[s.item.type];
     // only real positions: x/y on elements, and cx/cy where they mean a centre (Checker and Cells use cx/cy for columns and rows)
     const byKey = Object.fromEntries(def.params.map((p) => [p.k, p]));
@@ -4586,10 +4672,10 @@ window.PL = window.PL || {};
       const set = (ev) => {
         const [u, v] = toUV(cv, ev);
         tg.p[kx] = Math.round(PL.clamp(u, -0.25, 1.25) * 100) / 100; tg.p[ky] = Math.round(PL.clamp(v, -0.25, 1.25) * 100) / 100;
-        changed(false);
+        A.changed(false);
       };
       set(e);
-      const up = () => { cv.removeEventListener('pointermove', set); cv.removeEventListener('pointerup', up); cv.removeEventListener('pointercancel', up); const old = $('#settingsPanel'), s = findSel(); if (old && s) old.replaceWith(settingsPanel(s)); changed(true); };
+      const up = () => { cv.removeEventListener('pointermove', set); cv.removeEventListener('pointerup', up); cv.removeEventListener('pointercancel', up); const old = $('#settingsPanel'), s = A.findSel(); if (old && s) old.replaceWith(A.settingsPanel(s)); A.changed(true); };
       cv.addEventListener('pointermove', set); cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
     });
   }
@@ -4606,25 +4692,25 @@ window.PL = window.PL || {};
     if (json) {
       try {
         const obj = JSON.parse(await json.text());
-        const msg = loadJson(obj);
-        renderAll(); commit(); toast(msg, "success");
+        const msg = A.loadJson(obj);
+        A.renderAll(); A.commit(); toast(msg, "success");
       } catch (err) { toast("Couldn’t open " + json.name + ". Check it’s a paint or project file.", "error"); console.warn(err); }
       return;
     }
     const imgs = files.filter((f) => f.type.startsWith('image/'));
     if (!imgs.length) return;
-    if (state.mode !== 'anim') { state.mode = 'anim'; }
+    if (A.state.mode !== 'anim') { A.state.mode = 'anim'; }
     for (const f of imgs) {
       try {
-        const src = await fileToDataUrl(f, 512); await cacheImage(src);
+        const src = await A.fileToDataUrl(f, 512); await A.cacheImage(src);
         const l = E.newLayer('sprite', { name: f.name.replace(/\.[^.]+$/, '').slice(0, 30), params: { src } });
-        state.anim.layers.push(l); state.sel = { kind: 'layer', id: l.id };
+        A.state.anim.layers.push(l); A.state.sel = { kind: 'layer', id: l.id };
       } catch (err) { toast('Could not read ' + f.name + '.', 'error'); }
     }
-    renderAll(); commit(); toast(imgs.length > 1 ? `Added ${imgs.length} pictures.` : 'Added the picture as an element. Drag it on the paint image to place it.', 'success');
+    A.renderAll(); A.commit(); toast(imgs.length > 1 ? `Added ${imgs.length} pictures.` : 'Added the picture as an element. Drag it on the paint image to place it.', 'success');
   });
   function setPlayIcon() { if (!rt.ui) return; const b = rt.ui.playB; b.replaceChildren(icon(rt.playing ? 'pause' : 'play')); b.setAttribute('aria-label', rt.playing ? 'Pause' : 'Play'); b.dataset.tip = rt.playing ? 'Pause' : 'Play'; }
-  function togglePlay() { rt.playing = !rt.playing; if (rt.playing) rt.start = performance.now() - (rt.frame / state.anim.fps) * 1000; setPlayIcon(); }
+  function togglePlay() { rt.playing = !rt.playing; if (rt.playing) rt.start = performance.now() - (rt.frame / A.state.anim.fps) * 1000; setPlayIcon(); }
 
   function getFrame(i) {
     // cache frames only while the whole loop fits in ~160 MB; above that, render each frame on demand
@@ -4636,13 +4722,13 @@ window.PL = window.PL || {};
   // The preview loop never throws: a failing layer shows one error and waits for the next edit.
   function tick(now) {
     requestAnimationFrame(tick);
-    if (state.mode !== 'anim' || !rt.texCv || (rt.broken && !rt.dirty)) return;
+    if (A.state.mode !== 'anim' || !rt.texCv || (rt.broken && !rt.dirty)) return;
     if (document.querySelector('.backdrop')) return; // a dialog covers the preview
     try { step(now); rt.broken = false; }
     catch (e) { console.error(e); rt.broken = true; rt.dirty = false; toast('Couldn’t draw this paint. Undo the last change or remove the layer that broke it.', 'error'); }
   }
   function step(now) {
-    const d = state.anim;
+    const d = A.state.anim;
     if (rt.dirty) {
       rt.cp = E.compile(d); rt.cache = []; rt.dirty = false; rt.redraw = true;
       if (rt.texCv.width !== d.width || rt.texCv.height !== d.height) { rt.texCv.width = d.width; rt.texCv.height = d.height; }
@@ -4657,20 +4743,32 @@ window.PL = window.PL || {};
     if (!rt.redraw && rt.shown === rt.frame) return;
     const img = getFrame(rt.frame);
     rt.texCv.getContext('2d').putImageData(img, 0, 0);
-    const text = state.preview.text, color = state.preview.color;
-    pv.names.forEach((cv, i) => drawNameCanvas(cv, text, SIZES[i], rt.texCv, color, d.shadows));
-    pv.chatNames.forEach((cv) => drawNameCanvas(cv, text, 13, rt.texCv, color, d.shadows));
+    const text = A.state.preview.text, color = A.state.preview.color;
+    A.pv.names.forEach((cv, i) => A.drawNameCanvas(cv, text, A.SIZES[i], rt.texCv, color, d.shadows));
+    A.pv.chatNames.forEach((cv) => A.drawNameCanvas(cv, text, 13, rt.texCv, color, d.shadows));
     rt.ui.scrub.value = rt.frame;
     rt.ui.fno.textContent = `${String(rt.frame + 1).padStart(String(n).length, '0')} / ${n}`;
     rt.shown = rt.frame; rt.redraw = false;
   }
   requestAnimationFrame(tick);
 
+  Object.assign(A, { rt, animStage, togglePlay });
+})(window.PL);
+
+</script>
+  <script>
+/* cyex paints: animated export (GIF, APNG, sprite sheet, name GIF) and the export result. */
+(function (PL) {
+  'use strict';
+  const { h, icon, btn, panel, slider, seg, checkbox, labeled, dialog, toast, download, slug } = PL.UI;
+  const E = PL.Engine, Paint = PL.Paint, clone = PL.clone;
+  const A = (PL.App = PL.App || {});
+
   // ---- animated export ----
   let lastExport = null, exporting = null;
   const setExport = (rec) => { if (lastExport && lastExport.url) URL.revokeObjectURL(lastExport.url); lastExport = rec; };
   function animOutput() {
-    const d = state.anim, g = state.gif;
+    const d = A.state.anim, g = A.state.gif;
     const result = h('div', { class: 'stack', id: 'exportResult' });
     if (lastExport) showResult(result, lastExport);
     const exportBtns = [];
@@ -4681,7 +4779,7 @@ window.PL = window.PL || {};
     // can't mix frames. Only one export runs at a time, and it can be cancelled.
     async function runExport(b, work) {
       if (exporting) return;
-      const doc = clone(state.anim);
+      const doc = clone(A.state.anim);
       if (!doc.layers.some((l) => l.visible)) { toast('There is nothing to export yet. Add or show a layer first.'); return; }
       const cp = E.compile(doc);
       const px = cp.W * cp.H * cp.frames;
@@ -4728,7 +4826,7 @@ window.PL = window.PL || {};
 
     const gifB = btn('Export GIF', () => runExport(gifB, async ({ doc, cp, frames }) => {
       const fr = await frames();
-      const blob = PL.Encode.encodeGif(fr, { delayCs: Math.round(100 / doc.fps), colors: g.colors, dither: g.dither, alphaCut: g.alpha ? 128 : 0, matte: g.alpha ? null : PL.hexToRgb(state.preview.color) });
+      const blob = PL.Encode.encodeGif(fr, { delayCs: Math.round(100 / doc.fps), colors: g.colors, dither: g.dither, alphaCut: g.alpha ? 128 : 0, matte: g.alpha ? null : PL.hexToRgb(A.state.preview.color) });
       finishExport({ blob, name: slug(doc.name) + '.gif', kind: 'GIF', w: cp.W, h: cp.H, frames: fr.length, shadows: doc.shadows });
     }), 'primary', 'film');
     const apngB = btn('Export APNG', () => runExport(apngB, async ({ doc, cp, frames }) => {
@@ -4737,7 +4835,7 @@ window.PL = window.PL || {};
       const blob = await PL.Encode.encodeApng(fr, { delayMs: 1000 / doc.fps });
       finishExport({ blob, name: slug(doc.name) + '.png', kind: 'APNG', w: cp.W, h: cp.H, frames: fr.length, shadows: doc.shadows });
     }), 'secondary', 'film');
-    const pngB = btn('Frame PNG', () => { if (!rt.texCv) return; rt.texCv.toBlob((b) => download(b, `${slug(d.name)}-frame-${rt.frame + 1}.png`)); }, 'secondary', 'image');
+    const pngB = btn('Frame PNG', () => { if (!A.rt.texCv) return; A.rt.texCv.toBlob((b) => download(b, `${slug(d.name)}-frame-${A.rt.frame + 1}.png`)); }, 'secondary', 'image');
     const sheetB = btn('Sprite sheet', () => runExport(sheetB, async ({ doc, cp, frames }) => {
       const fr = await frames();
       // a grid, so tall loops stay under the browser's canvas size limit
@@ -4750,17 +4848,17 @@ window.PL = window.PL || {};
     // animated painted name (for sharing / showing off)
     const nameB = btn('Name GIF', () => runExport(nameB, async ({ doc, cp, frames }) => {
       const fr = await frames();
-      const px = state.nameSize, m = measure(state.preview.text, px), pad = shadowPad(doc.shadows);
+      const px = A.state.nameSize, m = A.measure(A.state.preview.text, px), pad = A.shadowPad(doc.shadows);
       const W = m.w + pad * 2, H = m.h + pad * 2;
       const cv = h('canvas', { width: W, height: H }), ctx = cv.getContext('2d', { willReadFrequently: true });
       const tex = h('canvas', { width: cp.W, height: cp.H }), tctx = tex.getContext('2d');
-      const bg = state.preview.bg;
+      const bg = A.state.preview.bg;
       const bgCol = bg === 'light' ? '#ffffff' : bg === 'dark' ? '#18181b' : null;
       const out = fr.map((f) => {
         tctx.putImageData(f, 0, 0);
         ctx.clearRect(0, 0, W, H);
         if (bgCol) { ctx.fillStyle = bgCol; ctx.fillRect(0, 0, W, H); }
-        paintName(ctx, pad, pad, state.preview.text, px, tex, state.preview.color, doc.shadows, 1);
+        A.paintName(ctx, pad, pad, A.state.preview.text, px, tex, A.state.preview.color, doc.shadows, 1);
         return ctx.getImageData(0, 0, W, H);
       });
       const blob = PL.Encode.encodeGif(out, { delayCs: Math.round(100 / doc.fps), colors: g.colors, dither: g.dither, alphaCut: 110 });
@@ -4769,26 +4867,26 @@ window.PL = window.PL || {};
     exportBtns.push(gifB, apngB, sheetB, nameB);
 
     const gifOpts = h('div', { class: 'sub' }, h('span', { class: 'label' }, 'GIF options'),
-      h('div', { class: 'row' }, h('span', { class: 'hint' }, 'Colours'), seg([[64, '64'], [128, '128'], [256, '256']], g.colors, (v) => { g.colors = v; save(); }, 'GIF colours')),
-      checkbox('Dither (smoother gradients, larger file)', g.dither, (v) => { g.dither = v; save(); }),
-      checkbox('Keep transparent areas (the name colour shows through)', g.alpha, (v) => { g.alpha = v; save(); }),
+      h('div', { class: 'row' }, h('span', { class: 'hint' }, 'Colours'), seg([[64, '64'], [128, '128'], [256, '256']], g.colors, (v) => { g.colors = v; A.save(); }, 'GIF colours')),
+      checkbox('Dither (smoother gradients, larger file)', g.dither, (v) => { g.dither = v; A.save(); }),
+      checkbox('Keep transparent areas (the name colour shows through)', g.alpha, (v) => { g.alpha = v; A.save(); }),
       h('p', { class: 'hint' }, 'GIF has 256 colours and on/off transparency. APNG keeps full colour and soft edges, and 7TV can show it too.'));
 
-    const nsz = slider('Name size', state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { state.nameSize = v; save(); } });
+    const nsz = slider('Name size', A.state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { A.state.nameSize = v; A.save(); } });
 
     // 7TV JSON for an image paint
     // the project preview leaves out embedded pictures (they can be megabytes); Save project keeps them
-    const projectPreview = () => JSON.stringify({ cyexPaintProject: 1, doc: state.anim }, (k, v) => (k === 'src' && typeof v === 'string' && v.length > 80 ? '<picture data, kept in Save project>' : v), 2);
-    outputGetter = () => (codeTab === 'project' ? projectPreview() : JSON.stringify({ name: state.anim.name, function: 'URL', repeat: false, angle: 0, shape: 'circle', image_url: state.url, stops: [], shadows: state.anim.shadows }, null, 2));
-    if (codeTab === 'css') codeTab = 'json';
-    const code = codeBox(outputGetter, [['json', '7TV JSON'], ['project', 'Project']]);
-    const url = h('input', { class: 'field mono', value: state.url, placeholder: 'https://…/my-paint.gif', spellcheck: false, 'aria-label': 'Hosted image URL', oninput: () => { state.url = url.value.trim(); updateOutput(); save(); } });
-    const saveP = btn('Save project', () => download(new Blob([JSON.stringify({ cyexPaintProject: 1, doc: state.anim })], { type: 'application/json' }), slug(d.name) + '.cyexpaint.json'), 'secondary small', 'save');
+    const projectPreview = () => JSON.stringify({ cyexPaintProject: 1, doc: A.state.anim }, (k, v) => (k === 'src' && typeof v === 'string' && v.length > 80 ? '<picture data, kept in Save project>' : v), 2);
+    A.outputGetter = () => (A.codeTab === 'project' ? projectPreview() : JSON.stringify({ name: A.state.anim.name, function: 'URL', repeat: false, angle: 0, shape: 'circle', image_url: A.state.url, stops: [], shadows: A.state.anim.shadows }, null, 2));
+    if (A.codeTab === 'css') A.codeTab = 'json';
+    const code = A.codeBox(A.outputGetter, [['json', '7TV JSON'], ['project', 'Project']]);
+    const url = h('input', { class: 'field mono', value: A.state.url, placeholder: 'https://…/my-paint.gif', spellcheck: false, 'aria-label': 'Hosted image URL', oninput: () => { A.state.url = url.value.trim(); A.updateOutput(); A.save(); } });
+    const saveP = btn('Save project', () => download(new Blob([JSON.stringify({ cyexPaintProject: 1, doc: A.state.anim })], { type: 'application/json' }), slug(d.name) + '.cyexpaint.json'), 'secondary small', 'save');
     const file = h('input', { type: 'file', accept: '.json,application/json', class: 'sr-only', onchange: async () => {
       const f = file.files[0]; if (!f) return;
       try {
         const obj = JSON.parse(await f.text());
-        const msg = loadJson(obj); renderAll(); commit(); toast(msg, "success");
+        const msg = A.loadJson(obj); A.renderAll(); A.commit(); toast(msg, "success");
       } catch (e) { toast("Couldn’t open that file. Check it’s a paint or project file.", "error"); console.warn(e); }
     } });
     const openP = h('label', { class: 'btn secondary small' }, icon('folder'), 'Open project', file);
@@ -4806,15 +4904,27 @@ window.PL = window.PL || {};
     host.textContent = '';
     if (!r.url) r.url = URL.createObjectURL(r.blob); // one URL per export, revoked when replaced
     const url = r.url;
-    const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: state.preview.color, backgroundImage: `url("${url}")`, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: r.shadows || state.anim.shadows }) } }, state.preview.text);
+    const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: A.state.preview.color, backgroundImage: `url("${url}")`, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: r.shadows || A.state.anim.shadows }) } }, A.state.preview.text);
     host.append(h('div', { class: 'result' },
       h('img', { src: url, alt: r.kind + ' export' }),
       h('div', { class: 'ctl grow' },
         h('span', { class: 'stat' }, `${r.kind} · ${r.w}×${r.h} · ${r.frames} frames · ${PL.fmtBytes(r.blob.size)}`),
-        sevenTv ? h('div', { class: 'stagebox ' + state.preview.bg, style: { padding: '10px 12px', border: '1px solid var(--border)' } }, sevenTv) : null,
+        sevenTv ? h('div', { class: 'stagebox ' + A.state.preview.bg, style: { padding: '10px 12px', border: '1px solid var(--border)' } }, sevenTv) : null,
         sevenTv ? h('span', { class: 'hint' }, 'Shown exactly the way 7TV applies an image paint.') : null,
         h('div', { class: 'row' }, btn('Download again', () => download(r.blob, r.name), 'ghost small', 'download')))));
   }
+
+  Object.assign(A, { animOutput });
+})(window.PL);
+
+</script>
+  <script>
+/* cyex paints: library and presets dialogs. */
+(function (PL) {
+  'use strict';
+  const { h, icon, seg, dialog, toast } = PL.UI;
+  const E = PL.Engine, Paint = PL.Paint, clone = PL.clone;
+  const A = (PL.App = PL.App || {});
 
   // =====================================================================================
   // Library and presets dialogs
@@ -4853,13 +4963,13 @@ window.PL = window.PL || {};
     search.addEventListener('input', render);
     search.addEventListener('keydown', (e) => { if (e.key === 'Escape' && search.value) { e.stopPropagation(); search.value = ''; render(); } });
     const add = (def) => {
-      const d = state.anim;
+      const d = A.state.anim;
       if (kind === 'layer') {
         const l = E.newLayer(def.id);
         if (d.layers.length && ['sparkles', 'stars', 'shine', 'glints', 'particles', 'rays'].includes(def.id)) l.blend = 'screen';
-        d.layers.push(l); state.sel = { kind, id: l.id };
-      } else { const e = E.newEffect(def.id); d.effects.push(e); state.sel = { kind, id: e.id }; }
-      dlg.close(); renderEditor(); changed(true); focusItem(state.sel.id);
+        d.layers.push(l); A.state.sel = { kind, id: l.id };
+      } else { const e = E.newEffect(def.id); d.effects.push(e); A.state.sel = { kind, id: e.id }; }
+      dlg.close(); A.renderEditor(); A.changed(true); A.focusItem(A.state.sel.id);
       toast(`Added ${def.name}.${def.cat === 'Scene elements' ? ' Drag on the paint image to place it.' : ''}`);
     };
     const dlg = dialog(kind === 'layer' ? 'Add a layer or element' : 'Add an effect', [h('div', { class: 'search' }, icon('search'), search), h('div', { class: 'libwrap' }, nav, list)], { wide: true });
@@ -4886,7 +4996,7 @@ window.PL = window.PL || {};
   }
 
   function openPresets() {
-    let tab = state.mode;
+    let tab = A.state.mode;
     const host = h('div', { class: 'cards' });
     if (tab === 'anim') tab = 'scenes';
     const tabs = seg([['static', 'Static gradients'], ['scenes', 'Scenes'], ['anim', 'Animated effects']], tab, (v) => { tab = v; render(); }, 'Preset type');
@@ -4897,7 +5007,7 @@ window.PL = window.PL || {};
       if (tab === 'static') {
         for (const p of PL.STATIC_PRESETS) {
           const sw = h('div', { class: 'sw', style: { backgroundImage: Paint.gradientCss(p) } });
-          host.append(h('button', { type: 'button', class: 'card', onclick: () => { state.static = clone(p); state.mode = 'static'; d.close(); renderAll(); commit(); } }, sw, h('b', null, p.name), h('span', null, `${p.function === 'RADIAL_GRADIENT' ? 'Radial' : 'Linear'} · ${p.stops.length} stops${p.shadows.length ? ' · shadow' : ''}`)));
+          host.append(h('button', { type: 'button', class: 'card', onclick: () => { A.state.static = clone(p); A.state.mode = 'static'; d.close(); A.renderAll(); A.commit(); } }, sw, h('b', null, p.name), h('span', null, `${p.function === 'RADIAL_GRADIENT' ? 'Radial' : 'Linear'} · ${p.stops.length} stops${p.shadows.length ? ' · shadow' : ''}`)));
         }
       } else {
         const work = [];
@@ -4905,7 +5015,7 @@ window.PL = window.PL || {};
           const doc = make();
           const cv = h('canvas', { width: 192, height: 48, 'aria-hidden': 'true' });
           work.push([cv, doc]);
-          host.append(h('button', { type: 'button', class: 'card', onclick: () => { state.anim = make(); state.mode = 'anim'; state.sel = null; d.close(); renderAll(); commit(); } }, cv, h('b', null, doc.name), h('span', null, doc.layers.map((l) => PL.LAYERS[l.type].name).concat(doc.effects.map((e) => PL.EFFECTS[e.type].name)).join(', '))));
+          host.append(h('button', { type: 'button', class: 'card', onclick: () => { A.state.anim = make(); A.state.mode = 'anim'; A.state.sel = null; d.close(); A.renderAll(); A.commit(); } }, cv, h('b', null, doc.name), h('span', null, doc.layers.map((l) => PL.LAYERS[l.type].name).concat(doc.effects.map((e) => PL.EFFECTS[e.type].name)).join(', '))));
         }
         let i = 0;
         const step = () => {
@@ -4924,6 +5034,49 @@ window.PL = window.PL || {};
     const d = dialog('Presets', [h('div', { class: 'row' }, tabs, h('span', { class: 'hint' }, 'Picking a preset replaces the current paint of that type. Undo brings it back.')), host], { wide: true });
     render();
   }
+
+  Object.assign(A, { openLibrary, openPresets });
+})(window.PL);
+
+</script>
+  <script>
+/* cyex paints: editor wiring for static (7TV gradient) and animated (layered, exported as image) paints.
+   main.js: header, keyboard shortcuts, focus restore, rendering and boot. Loads last, after every js/app/ module has registered on PL.App. */
+(function (PL) {
+  'use strict';
+  const { h, icon, seg, toast } = PL.UI;
+  const A = (PL.App = PL.App || {});
+  const $ = A.$; // store.js loads first
+
+  // =====================================================================================
+  // Header
+  // =====================================================================================
+  const modeSeg = seg([['static', 'Static'], ['anim', 'Animated']], A.state.mode, (m) => { A.state.mode = m; renderAll(); A.commit(); }, 'Paint type');
+  $('#modeSeg').replaceWith(Object.assign(modeSeg, { id: 'modeSeg' }));
+  $('#undoBtn').append(icon('undo')); $('#undoBtn').onclick = A.undo;
+  $('#redoBtn').append(icon('redo')); $('#redoBtn').onclick = A.redo;
+  $('#presetsBtn').append(icon('sparkles'), h('span', { class: 'lbl' }, 'Presets'));
+  $('#presetsBtn').onclick = A.openPresets;
+  const themeBtn = $('#themeBtn');
+  const paintTheme = () => { themeBtn.textContent = ''; themeBtn.append(icon(document.documentElement.dataset.theme === 'light' ? 'moon' : 'sun')); };
+  themeBtn.onclick = () => {
+    const go = () => {
+      const light = document.documentElement.dataset.theme !== 'light';
+      if (light) document.documentElement.dataset.theme = 'light'; else delete document.documentElement.dataset.theme;
+      try { localStorage.setItem('cyexTheme', light ? 'light' : 'dark'); } catch (e) {}
+      $('meta[name="theme-color"]').content = light ? '#f3f3f4' : '#1e1f23';
+      paintTheme();
+    };
+    if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) { const vt = document.startViewTransition(go); vt.ready.catch(() => {}); vt.finished.catch(() => {}); } else go(); // a quick second click skips the first transition; that's fine
+  };
+  paintTheme();
+
+  document.addEventListener('keydown', (e) => {
+    const typing = e.target.closest && e.target.closest('input, textarea, [contenteditable]');
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? A.redo() : A.undo(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); A.redo(); }
+    else if (e.key === ' ' && !e.defaultPrevented && A.state.mode === 'anim' && !typing && !e.target.closest('button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); A.togglePlay(); }
+  });
 
   // =====================================================================================
   // Render
@@ -4964,9 +5117,9 @@ window.PL = window.PL || {};
     const fd = focusDescriptor();
     root.textContent = '';
     root.className = 'editor';
-    document.querySelector('.layout').classList.toggle('anim', state.mode === 'anim');
+    document.querySelector('.layout').classList.toggle('anim', A.state.mode === 'anim');
     PL.UI.closePop();
-    if (state.mode === 'static') renderStaticEditor(root); else renderAnimEditor(root);
+    if (A.state.mode === 'static') A.renderStaticEditor(root); else A.renderAnimEditor(root);
     scrollTo(0, y);
     const sc = $('.settings-col'); if (sc) sc.scrollTop = sy;
     restoreFocus(fd);
@@ -4974,26 +5127,27 @@ window.PL = window.PL || {};
   function renderStage() {
     const root = $('#stage');
     root.textContent = '';
-    codePre = null; outputGetter = null;
-    if (state.mode === 'static') {
-      pv = previewPanel('static');
-      root.append(pv.el, staticOutput());
-      updateStaticPreview();
-      rt.texCv = null;
-    } else animStage(root);
-    updateOutput();
+    A.codePre = null; A.outputGetter = null;
+    if (A.state.mode === 'static') {
+      A.pv = A.previewPanel('static');
+      root.append(A.pv.el, A.staticOutput());
+      A.updateStaticPreview();
+      A.rt.texCv = null;
+    } else A.animStage(root);
+    A.updateOutput();
   }
   function renderAll() {
-    modeSeg.setValue(state.mode);
-    document.title = (state.mode === 'static' ? 'Static paint' : 'Animated paint') + ' - cyex paints';
+    modeSeg.setValue(A.state.mode);
+    document.title = (A.state.mode === 'static' ? 'Static paint' : 'Animated paint') + ' - cyex paints';
     renderEditor(); renderStage();
-    rt.dirty = true;
+    A.rt.dirty = true;
   }
+  Object.assign(A, { focusDescriptor, restoreFocus, focusItem, renderEditor, renderAll });
 
-  cacheDocImages(state.anim);
+  A.cacheDocImages(A.state.anim);
   renderAll();
-  updateUndo();
-  if (pendingNotice) toast(...pendingNotice);
+  A.updateUndo();
+  if (A.pendingNotice) toast(...A.pendingNotice);
 })(window.PL);
 
 </script>
