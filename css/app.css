@@ -169,11 +169,6 @@ input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 .pname { font-family: var(--name-font); font-weight: 700; line-height: 1.2; white-space: nowrap; max-width: 100%; }
 .painted { background-color: currentcolor; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 canvas.pname { display: block; max-width: none; flex: none; }
-.chat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, currentcolor 12%, transparent); }
-.chat .msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chat .ts { opacity: .6; margin-right: 6px; font-variant-numeric: tabular-nums; }
-.chat .who { font-weight: 700; }
-.chat canvas { display: inline-block; vertical-align: middle; }
 .texrow { display: flex; align-items: center; gap: 10px; }
 .tex { width: 100%; max-width: 100%; height: auto; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 12px 12px; image-rendering: pixelated; }
 .transport { display: flex; align-items: center; gap: 8px; }

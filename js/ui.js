@@ -282,8 +282,19 @@
     let img, own = null, url = '';
     if (typeof ImageBitmap !== 'undefined' && src instanceof ImageBitmap) img = src;
     else {
-      try { img = own = await createImageBitmap(src); }
-      catch (e) { url = URL.createObjectURL(src); img = new Image(); img.src = url; await img.decode(); } // SVG and other formats createImageBitmap refuses
+      try {
+        img = own = await createImageBitmap(src);
+        const bw = own.width, bh = own.height, big = Math.max(bw, bh);
+        if (big > 192) { // large picture: decode again at reduced size so a huge photo isn't kept in memory; fall back to the full-size bitmap if resize options aren't supported
+          try {
+            const s = 96 / big;
+            const small = await createImageBitmap(src, { resizeWidth: Math.max(1, Math.round(bw * s)), resizeHeight: Math.max(1, Math.round(bh * s)), resizeQuality: 'medium' });
+            own.close(); img = own = small;
+          } catch (e2) { /* keep the full-size bitmap */ }
+        }
+      }
+      catch (e) {
+        if (own) { own.close(); own = null; } url = URL.createObjectURL(src); img = new Image(); img.src = url; try { await img.decode(); } catch (e3) { URL.revokeObjectURL(url); throw e3; } } // SVG and other formats createImageBitmap refuses
     }
     try {
       const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
@@ -360,18 +371,22 @@
     const setCount = (v) => { imgN = v; num.value = String(v); try { localStorage.setItem(IMG_N_KEY, String(v)); } catch (e) {} };
     num.addEventListener('change', () => setCount(count()));
     num.addEventListener('keydown', (e) => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); setCount(Math.max(2, Math.min(8, count() + (e.key === 'ArrowUp' ? 1 : -1)))); } });
-    const b = btn('From image', () => input.click(), 'ghost small', 'image');
+    const b = btn('From image', () => { if (!busy) input.click(); }, 'ghost small', 'image');
     b.dataset.tip = 'Take colours from a picture'; b.dataset.hint = 'Or paste an image with Ctrl+V';
     const run = async (blob) => {
       if (busy) return;
-      busy = true; b.disabled = true;
+      busy = true; b.setAttribute('aria-disabled', 'true'); b.setAttribute('aria-busy', 'true'); // not [disabled]: that would drop keyboard focus
       try {
         const cols = await paletteFromImage(blob, count());
         if (!cols.length) throw new Error('no colours');
         apply(cols);
         toast(`Took ${cols.length} ${cols.length === 1 ? 'colour' : 'colours'} from the image.`);
-      } catch (err) { toast('Couldn’t read that image. Try a PNG, JPG or WebP file.', 'error'); }
-      finally { busy = false; b.disabled = false; }
+      } catch (err) {
+        toast(err && err.message === 'no visible pixels' ? 'That picture has no visible pixels. Try one with some colour.' : 'Couldn’t read that image. Try a PNG, JPG or WebP file.', 'error');
+      } finally {
+        busy = false; b.removeAttribute('aria-disabled'); b.removeAttribute('aria-busy');
+        if (document.activeElement === document.body && b.isConnected) b.focus();
+      }
     };
     input.addEventListener('change', () => { const f = input.files && input.files[0]; input.value = ''; if (f) run(f); });
     root.addEventListener('paste', (e) => {

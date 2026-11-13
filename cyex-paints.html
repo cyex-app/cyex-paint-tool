@@ -395,11 +395,6 @@ input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 .pname { font-family: var(--name-font); font-weight: 700; line-height: 1.2; white-space: nowrap; max-width: 100%; }
 .painted { background-color: currentcolor; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 canvas.pname { display: block; max-width: none; flex: none; }
-.chat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, currentcolor 12%, transparent); }
-.chat .msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chat .ts { opacity: .6; margin-right: 6px; font-variant-numeric: tabular-nums; }
-.chat .who { font-weight: 700; }
-.chat canvas { display: inline-block; vertical-align: middle; }
 .texrow { display: flex; align-items: center; gap: 10px; }
 .tex { width: 100%; max-width: 100%; height: auto; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 12px 12px; image-rendering: pixelated; }
 .transport { display: flex; align-items: center; gap: 8px; }
@@ -649,7 +644,6 @@ h3.label { margin: 0; }
 </style>
   <style>
 /* cyex paints: export panel (format choice, primary button, size estimate). Tokens only. */
-.export-opts[hidden] { display: none; }
 .export-format { align-items: center; gap: 8px; }
 .export-grid .export-primary { grid-column: 1 / -1; justify-content: center; }
 .export-est { display: block; min-height: 1.2em; }
@@ -700,7 +694,9 @@ h3.label { margin: 0; }
 .layer-card { border: 1px solid var(--border); background: var(--surface); }
 .layer-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
 .layer-toggle { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; min-height: 28px; padding: 0 4px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font: inherit; font-size: .85rem; font-weight: 600; text-align: left; cursor: pointer; }
-.layer-toggle:hover { background: var(--row-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .layer-toggle:hover { background: var(--row-hover); }
+}
 .layer-toggle svg { width: 14px; height: 14px; flex: none; color: var(--dim); transition: transform var(--fast) var(--ease); }
 .layer-toggle[aria-expanded='false'] svg { transform: rotate(-90deg); }
 .layer-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -716,6 +712,9 @@ h3.label { margin: 0; }
   .tbadge, .temote, .layer-sw { forced-color-adjust: none; }
 }
 
+/* the Add layer button stays focusable at the layer cap, so it uses aria-disabled and keeps its tooltip */
+.btn[aria-disabled='true'] { opacity: .5; cursor: not-allowed; }
+
 </style>
   <style>
 /* cyex paints: My paints dialog and the History popover. Tokens only (css/tokens.css). */
@@ -728,18 +727,25 @@ h3.label { margin: 0; }
 .mp-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .mp-grid > .empty { grid-column: 1 / -1; }
 .mp-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 0; transition: border-color var(--fast), background-color var(--fast); }
-.mp-card:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .mp-card:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+}
 .mp-card.current { box-shadow: inset 3px 0 0 var(--accent); }
-.mp-thumb { display: block; width: 100%; aspect-ratio: 4 / 1; object-fit: contain; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 8px 8px; cursor: pointer; }
+.mp-thumb { display: block; width: 100%; aspect-ratio: 4 / 1; object-fit: contain; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 8px 8px; }
 .mp-namerow { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 28px; }
 .mp-name { flex: 1; min-width: 0; font-size: .85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mp-rename { flex: 1; min-width: 0; height: 28px; padding: 0 8px; }
 .mp-chip { flex: none; display: inline-flex; align-items: center; min-height: 18px; padding: 0 6px; border-radius: var(--radius); background: var(--neutral-chip); color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .mp-date { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: .74rem; color: var(--dim); }
-.mp-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.mp-tools { display: flex; align-items: center; gap: 2px; min-width: 0; }
-.mp-del.armed { width: auto; padding: 0 8px; font-size: .78rem; font-weight: 600; white-space: nowrap; color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
-.mp-del.armed:hover { color: var(--red); background: color-mix(in srgb, var(--red) 20%, transparent); }
+.mp-warn { color: var(--text); }
+.mp-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.mp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
+/* armed: the confirm button gets a full-width row of its own, so it never overflows the card */
+.mp-card:has(.mp-del.armed) .mp-tools { flex: 1 1 100%; }
+.mp-del.armed { flex: 1 1 auto; width: auto; min-width: 0; padding: 0 8px; font-size: .78rem; font-weight: 600; white-space: normal; color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+@media (hover: hover) and (pointer: fine) {
+  .mp-del.armed:hover { color: var(--red); background: color-mix(in srgb, var(--red) 20%, transparent); }
+}
 
 /* ---------- History popover ---------- */
 .hist-pop { max-height: min(360px, calc(100vh - 16px)); }
@@ -765,7 +771,8 @@ h3.label { margin: 0; }
 
 /* ---------- surprise preview ---------- */
 .surprise { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 10px 16px; align-items: center; padding: 12px; background: var(--surface); border: 1px solid var(--border); animation: sur-in var(--base) var(--ease); }
-.surprise[hidden] { display: none; }
+.surprise .sprev { position: relative; }
+.surprise .spause { position: absolute; right: 4px; bottom: 4px; background: var(--surface); border: 1px solid var(--border-strong); }
 .surprise .sprev canvas, .surprise .sprev .sw { display: block; width: 100%; aspect-ratio: 4 / 1; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 8px 8px; forced-color-adjust: none; }
 .surprise .sinfo { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .surprise .sinfo b { font-size: 1.05rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -784,69 +791,82 @@ h3.label { margin: 0; }
 /* cyex paints: keyframe buttons, the keyframe timeline, layer groups and clip marks. Tokens only. */
 
 /* ---------- keyframe button next to a slider ---------- */
-/* off: small outline · anim: the value is animated (ring with a dot) · key: a key at the playhead (filled) */
+/* off: small outline · anim: the value is animated (ring with a dot) · key: a key at the playhead (filled).
+   Neutral, not the accent: the accent is kept for the selected key and the playhead. */
 .kf-btn svg { width: 14px; height: 14px; }
 .kf-btn svg .o { fill: none; stroke: currentColor; stroke-width: 2; }
 .kf-btn svg .i { fill: currentColor; stroke: none; opacity: 0; }
 .kf-btn[data-state='off'] { color: var(--dim); }
-.kf-btn[data-state='anim'], .kf-btn[data-state='key'] { color: var(--accent-text); }
+.kf-btn[data-state='anim'], .kf-btn[data-state='key'] { color: var(--text); }
 .kf-btn[data-state='anim'] svg .i { opacity: 1; }
 .kf-btn[data-state='key'] svg .o { fill: currentColor; }
-.icon-btn.kf-btn[data-state='anim']:hover, .icon-btn.kf-btn[data-state='key']:hover { color: var(--accent-text); background: var(--accent-dim); }
 .ctl > .top .kf-btn { margin-right: -4px; }
 
 /* palette strengths: a row of key chips under the palette editor */
 .kf-str { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.kf-str > .label { flex: 1 0 100%; }
+.kf-str > .label, .kf-str > .hint { flex: 1 0 100%; }
 .icon-btn.kf-chip { width: auto; gap: 4px; display: inline-flex; align-items: center; padding: 0 6px 0 4px; border: 1px solid var(--border); background: var(--bg); }
 .icon-btn.kf-chip i { width: 10px; height: 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); flex: none; }
 .icon-btn.kf-chip span { font: 600 .72rem var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
-.icon-btn.kf-chip[data-state='anim'], .icon-btn.kf-chip[data-state='key'] { border-color: var(--accent-border); }
+.icon-btn.kf-chip .kf-val { color: var(--text); }
+.icon-btn.kf-chip[data-state='anim'], .icon-btn.kf-chip[data-state='key'] { border-color: var(--border-strong); }
 
 .kf-clip { justify-content: flex-end; }
+.kf-clip .check:has(input:disabled) { opacity: .55; cursor: not-allowed; }
 
 /* ---------- timeline ---------- */
-.tl { --ph: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tl { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tl-body { display: contents; }
 .tl-head { display: flex; align-items: center; gap: 8px; }
 .tl-head .label { flex: 1; }
 .tl-now, .tl-frame { font: 600 .74rem var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; }
-.tl-grid { display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--bg); }
+.tl-grid { position: relative; display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--bg); }
 .tl-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; grid-template-areas: 'n l x'; align-items: center; gap: 6px; min-height: 32px; padding: 3px 4px 3px 10px; border-bottom: 1px solid var(--border); }
 .tl-row:last-child { border-bottom: 0; }
-.tl-name { grid-area: n; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-hint); color: var(--muted); }
+.tl-name { grid-area: n; position: relative; z-index: 3; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-hint); color: var(--muted); }
 .tl-rulerrow .tl-name { font-size: var(--text-label); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 .tl-row > .icon-btn, .tl-gap { grid-area: x; }
 .tl-gap { width: 26px; } /* the ruler lines up with the lanes beside their buttons */
 
-/* a lane runs 0..1 over the loop; the playhead is a line at --ph in every lane */
+/* a lane runs 0..1 over the loop */
 .tl-lane { grid-area: l; position: relative; height: 26px; margin: 0 8px; cursor: pointer; touch-action: none; user-select: none; }
 .tl-lane::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--border-strong); }
-.tl-lane::after { content: ''; position: absolute; top: -3px; bottom: -3px; left: calc(var(--ph) * 100%); width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; z-index: 1; }
+/* the playhead: one line over all lanes, placed with a transform from timeline.js */
+.tl-ph { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; z-index: 1; will-change: transform; }
 .tl-ruler { height: 24px; background: repeating-linear-gradient(to right, var(--control-border) 0 1px, transparent 1px var(--tick, 2%)) 0 100% / 100% 6px no-repeat; border-radius: var(--radius-sm); }
 .tl-ruler::before { top: auto; bottom: 0; background: var(--control-border); }
 .tl-ruler:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .tl-mark { position: absolute; top: 1px; transform: translateX(-50%); font: 600 .66rem var(--font-mono); color: var(--dim); font-variant-numeric: tabular-nums; pointer-events: none; }
 .tl-mark:first-child { transform: none; }
 
-/* keys: a diamond (a square for Hold), the picked one in the accent */
-.tl-key { position: absolute; top: 50%; width: 20px; height: 26px; margin: -13px 0 0 -10px; padding: 0; border: 0; border-radius: var(--radius); background: none; color: var(--muted); display: grid; place-items: center; cursor: ew-resize; touch-action: none; z-index: 2; }
+/* keys: a diamond (a square for Hold), the picked one in the accent; at least 24 × 24 to hit.
+   Dense keys overlap: the picked, focused or hovered one sits above its neighbours. */
+.tl-key { position: absolute; top: 50%; width: 24px; height: 26px; margin: -13px 0 0 -12px; padding: 0; border: 0; border-radius: var(--radius); background: none; color: var(--muted); display: grid; place-items: center; cursor: ew-resize; touch-action: none; z-index: 2; }
 .tl-key i { width: 9px; height: 9px; background: currentColor; transform: rotate(45deg); box-shadow: 0 0 0 2px var(--bg); }
 .tl-key[data-e='hold'] i { transform: none; }
 .tl-key[data-e='linear'] i { background: var(--bg); box-shadow: inset 0 0 0 2px currentColor, 0 0 0 2px var(--bg); }
-.tl-key:hover, .tl-key.now { color: var(--text); }
+.tl-key.now { color: var(--text); }
 .tl-key.sel { color: var(--accent); z-index: 3; }
 .tl-key.sel i { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--accent-border); }
 .tl-key[data-e='linear'].sel i { box-shadow: inset 0 0 0 2px currentColor, 0 0 0 2px var(--bg), 0 0 0 3px var(--accent-border); }
-.tl-key.dragging { cursor: grabbing; z-index: 4; }
-.tl-key:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.tl-key:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; z-index: 4; }
+.tl-key.dragging { cursor: grabbing; z-index: 5; }
 .tl-key:active { opacity: .6; transition: none; }
 
-/* the picked key: value name and frame, easing, delete */
+/* the picked key: value name and frame, easing, previous and next, delete */
 .tl-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tl-edit > .hint { flex: 1 0 100%; }
 .tl-sel { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; }
 .tl-sel .label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tl-ease { width: 140px; }
+.tl-nav { display: flex; gap: 2px; }
+.tl-prev svg { transform: rotate(90deg); }  /* the shared chevron points down */
+.tl-next svg { transform: rotate(-90deg); }
+
+@media (hover: hover) and (pointer: fine) {
+  .tl-key:hover { color: var(--text); z-index: 4; }
+  .tl-key.sel:hover { color: var(--accent); }
+}
 
 /* narrow panels (phones): the value name above its lane, so the lane gets the full width */
 @media (pointer: coarse) {
@@ -856,12 +876,14 @@ h3.label { margin: 0; }
 }
 @container (max-width: 380px) {
   .tl-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'n x' 'l l'; gap: 2px 6px; padding: 4px 4px 6px 8px; }
+  /* the playhead line runs behind the value names */
+  .tl-name { justify-self: start; max-width: 100%; padding-right: 4px; background: var(--bg); }
   .tl-ease { width: auto; flex: 1; min-width: 120px; }
 }
 
 /* ---------- layer groups and clipping in the layers list ---------- */
 .item.ghdr { cursor: default; background: var(--surface); }
-.item.ghdr .gicon { display: grid; place-items: center; width: 24px; height: 28px; margin-left: -4px; color: var(--dim); flex: none; }
+.item.ghdr .gicon { display: grid; place-items: center; width: 20px; height: 28px; margin-left: -6px; color: var(--dim); flex: none; }
 .item.ghdr .gicon svg { width: 15px; height: 15px; }
 .item.ghdr .name { display: flex; align-items: center; gap: 6px; }
 .item.ghdr .name svg { width: 14px; height: 14px; flex: none; color: var(--dim); transform: rotate(-90deg); transition: transform var(--fast) var(--ease); }
@@ -877,12 +899,24 @@ h3.label { margin: 0; }
 .clipmark svg { width: 14px; height: 14px; }
 .item.clipped .clipmark { display: grid; }
 
+/* touch screens show the row tools all the time: in the narrow layers column, group members drop
+   the thumbnail and the blend note so the name keeps at least about 80 px */
+@container (max-width: 420px) {
+  @media not all and (hover: hover) and (pointer: fine) {
+    .item.ingroup .thumb, .item.ingroup .meta { display: none; }
+  }
+}
+/* mouse: the selected row keeps its tools, so a member's note gives way to them */
+@media (hover: hover) and (pointer: fine) {
+  .item.ingroup.sel .meta { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .item.ghdr .name svg { transition: none; }
 }
 @media (forced-colors: active) {
   .tl-key.sel { outline: 2px solid Highlight; }
-  .tl-lane::after { background: Highlight; }
+  .tl-ph { background: Highlight; forced-color-adjust: none; }
   .tl-key i { forced-color-adjust: none; background: CanvasText; }
   .tl-key.sel i { background: Highlight; }
 }
@@ -4877,8 +4911,19 @@ window.PL = window.PL || {};
     let img, own = null, url = '';
     if (typeof ImageBitmap !== 'undefined' && src instanceof ImageBitmap) img = src;
     else {
-      try { img = own = await createImageBitmap(src); }
-      catch (e) { url = URL.createObjectURL(src); img = new Image(); img.src = url; await img.decode(); } // SVG and other formats createImageBitmap refuses
+      try {
+        img = own = await createImageBitmap(src);
+        const bw = own.width, bh = own.height, big = Math.max(bw, bh);
+        if (big > 192) { // large picture: decode again at reduced size so a huge photo isn't kept in memory; fall back to the full-size bitmap if resize options aren't supported
+          try {
+            const s = 96 / big;
+            const small = await createImageBitmap(src, { resizeWidth: Math.max(1, Math.round(bw * s)), resizeHeight: Math.max(1, Math.round(bh * s)), resizeQuality: 'medium' });
+            own.close(); img = own = small;
+          } catch (e2) { /* keep the full-size bitmap */ }
+        }
+      }
+      catch (e) {
+        if (own) { own.close(); own = null; } url = URL.createObjectURL(src); img = new Image(); img.src = url; try { await img.decode(); } catch (e3) { URL.revokeObjectURL(url); throw e3; } } // SVG and other formats createImageBitmap refuses
     }
     try {
       const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
@@ -4955,18 +5000,22 @@ window.PL = window.PL || {};
     const setCount = (v) => { imgN = v; num.value = String(v); try { localStorage.setItem(IMG_N_KEY, String(v)); } catch (e) {} };
     num.addEventListener('change', () => setCount(count()));
     num.addEventListener('keydown', (e) => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); setCount(Math.max(2, Math.min(8, count() + (e.key === 'ArrowUp' ? 1 : -1)))); } });
-    const b = btn('From image', () => input.click(), 'ghost small', 'image');
+    const b = btn('From image', () => { if (!busy) input.click(); }, 'ghost small', 'image');
     b.dataset.tip = 'Take colours from a picture'; b.dataset.hint = 'Or paste an image with Ctrl+V';
     const run = async (blob) => {
       if (busy) return;
-      busy = true; b.disabled = true;
+      busy = true; b.setAttribute('aria-disabled', 'true'); b.setAttribute('aria-busy', 'true'); // not [disabled]: that would drop keyboard focus
       try {
         const cols = await paletteFromImage(blob, count());
         if (!cols.length) throw new Error('no colours');
         apply(cols);
         toast(`Took ${cols.length} ${cols.length === 1 ? 'colour' : 'colours'} from the image.`);
-      } catch (err) { toast('Couldn’t read that image. Try a PNG, JPG or WebP file.', 'error'); }
-      finally { busy = false; b.disabled = false; }
+      } catch (err) {
+        toast(err && err.message === 'no visible pixels' ? 'That picture has no visible pixels. Try one with some colour.' : 'Couldn’t read that image. Try a PNG, JPG or WebP file.', 'error');
+      } finally {
+        busy = false; b.removeAttribute('aria-disabled'); b.removeAttribute('aria-busy');
+        if (document.activeElement === document.body && b.isConnected) b.focus();
+      }
     };
     input.addEventListener('change', () => { const f = input.files && input.files[0]; input.value = ''; if (f) run(f); });
     root.addEventListener('paste', (e) => {
@@ -5405,7 +5454,7 @@ window.PL = window.PL || {};
   A.pendingNotice = null;
   function healDoc(doc, quiet) {
     const { doc: d, dropped } = E.sanitizeDoc(doc);
-    if (dropped && !quiet) toastLater(`Skipped ${dropped} layer${dropped > 1 ? 's' : ''} this version doesn't know.`);
+    if (dropped && !quiet) toastLater(`Skipped ${dropped} layer${dropped > 1 ? 's' : ''} this version doesn’t know.`);
     return d;
   }
   function toastLater(msg, kind = 'info') { if (typeof toast === 'function' && document.getElementById('toasts')) toast(msg, kind); else A.pendingNotice = [msg, kind]; }
@@ -5484,16 +5533,19 @@ window.PL = window.PL || {};
     return `Edited ${short(x.name || noun)}`;
   }
   const KEY_LABELS = {
-    name: 'Renamed paint', width: 'Changed paint size', height: 'Changed paint size', fps: 'Changed timing', duration: 'Changed timing',
-    shadows: 'Changed shadows', tweak: 'Changed colour tweaks', groups: 'Changed layer groups', stops: 'Changed gradient stops',
+    name: 'Renamed paint', width: 'Changed paint size', height: 'Changed paint size', size: 'Changed paint size', fps: 'Changed frame rate', duration: 'Changed loop length',
+    loop: 'Changed loop length', loopLength: 'Changed loop length', shadows: 'Changed shadows', tweak: 'Changed colour tweaks', tweaks: 'Changed colour tweaks',
+    groups: 'Changed layer groups', stops: 'Changed gradient stops',
     angle: 'Changed gradient angle', function: 'Changed gradient type', repeat: 'Changed repeat', shape: 'Changed gradient shape',
   };
+  // a key without a fixed label still names itself ("backgroundColor" becomes "Changed background color")
+  const keyLabel = (k) => KEY_LABELS[k] || ('Changed ' + String(k).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase().slice(0, 24));
   function keysLabel(x, y, skip) {
     x = x || {}; y = y || {};
     const keys = [...new Set([...Object.keys(x), ...Object.keys(y)])].filter((k) => !(skip && skip.includes(k)) && !same(x[k], y[k]));
     if (!keys.length) return null;
     if (keys.length >= 4) return 'Replaced paint';
-    const labels = new Set(keys.map((k) => KEY_LABELS[k] || 'Changed paint settings'));
+    const labels = new Set(keys.map(keyLabel));
     return labels.size === 1 ? [...labels][0] : 'Changed paint settings';
   }
   function describe(prevS, nextS) {
@@ -5529,8 +5581,19 @@ window.PL = window.PL || {};
     hist.last = entry;
     A.renderAll(); save(); updateUndo();
   }
-  const undo = () => { if (!hist.past.length) return; commit(); if (!hist.past.length) return; hist.future.push(hist.last); restore(hist.past.pop()); };
-  const redo = () => { commit(); if (!hist.future.length) return; hist.past.push(hist.last); restore(hist.future.pop()); };
+  // History changes are announced through the polite toast region, e.g. "Undid Added Glow".
+  const announce = (msg) => { try { toast(msg, 'info'); } catch (_) { /* toasts not ready */ } };
+  const undo = () => {
+    if (!hist.past.length) return; commit(); if (!hist.past.length) return;
+    const undone = hist.last.label;
+    hist.future.push(hist.last); restore(hist.past.pop());
+    announce(`Undid ${short(undone)}`);
+  };
+  const redo = () => {
+    commit(); if (!hist.future.length) return;
+    hist.past.push(hist.last); restore(hist.future.pop());
+    announce(`Redid ${short(hist.last.label)}`);
+  };
   // Oldest first: past, the current state, then the redo stack (its top is the next newer step).
   const timeline = () => hist.past.concat([hist.last], hist.future.slice().reverse());
   // Newest first, for the History list. index is the position in oldest-first order, which jumpTo takes.
@@ -5546,6 +5609,7 @@ window.PL = window.PL || {};
     if (!(q >= 0 && q < T.length) || q === hist.past.length) return false;
     hist.past = T.slice(0, q); hist.future = T.slice(q + 1).reverse();
     restore(T[q]);
+    announce(`Back to ${short(T[q].label)}`);
     return true;
   }
   function updateUndo() {
@@ -5765,7 +5829,7 @@ window.PL = window.PL || {};
 
       const isUrl = g.function === 'URL';
       if (!isUrl && !g.stops.length) g.stops = defaultStops();
-      fields.append(labeled('Function', seg(LAYER_FUNCS, g.function, (v) => { g.function = v; if (v !== 'URL' && !g.stops.length) g.stops = defaultStops(); render(); A.changed(true); }, `Layer ${n} function`)));
+      fields.append(labeled('Function', seg(LAYER_FUNCS, g.function, (v) => { g.function = v; if (v !== 'URL' && !g.stops.length) g.stops = defaultStops(); swapCard(i, { i, group: `Layer ${n} function` }); A.changed(true); }, `Layer ${n} function`)));
       if (g.function === 'LINEAR_GRADIENT') fields.append(slider('Angle', g.angle ?? 90, { min: 0, max: 360, step: 1, unit: '°', onInput: (v) => { g.angle = v; on(); }, onCommit: done }));
       if (g.function === 'RADIAL_GRADIENT') fields.append(labeled('Shape', seg([['circle', 'Circle'], ['ellipse', 'Ellipse']], g.shape, (v) => { g.shape = v; on(); A.commit(); }, `Layer ${n} shape`)));
       if (g.function === 'CONIC_GRADIENT') fields.append(h('p', { class: 'hint' }, '7TV starts a conic gradient at the top and runs it clockwise, so there is no angle.'));
@@ -5781,7 +5845,7 @@ window.PL = window.PL || {};
         slider('Width', g.size[0], Object.assign({}, pctOpts, { max: 4, onInput: (v) => { g.size[0] = v; on(); }, onCommit: done })),
         slider('Height', g.size[1], Object.assign({}, pctOpts, { max: 4, onInput: (v) => { g.size[1] = v; on(); }, onCommit: done })));
       fields.append(h('div', { class: 'sub' }, h('span', { class: 'label' }, 'Size, position and repeat'),
-        checkbox(isUrl ? 'Automatic size (the image’s own size)' : 'Automatic size (the whole name)', auto, (v) => { g.size = v ? null : [1, 1]; render(); A.changed(true); }),
+        checkbox(isUrl ? 'Automatic size (the image’s own size)' : 'Automatic size (the whole name)', auto, (v) => { g.size = v ? null : [1, 1]; swapCard(i); A.changed(true); }),
         sizeRow,
         h('div', { class: 'split' },
           slider('Position X', g.at[0], Object.assign({}, pctOpts, { onInput: (v) => { g.at[0] = v; on(); }, onCommit: done })),
@@ -5798,28 +5862,68 @@ window.PL = window.PL || {};
 
       const dup = iconBtn('dup', `Duplicate layer ${n}`, () => {
         if (list.length >= Paint.MAX_LAYERS) { toast(`A paint can have up to ${Paint.MAX_LAYERS} layers.`); return; }
-        list.splice(i + 1, 0, PL.clone(g)); render(); A.changed(true);
+        list.splice(i + 1, 0, PL.clone(g)); render({ i: i + 1, first: true }); A.changed(true);
       }, { cls: 'sm' });
       const del = iconBtn('trash', `Remove layer ${n}`, () => {
-        list.splice(i, 1); render(); A.changed(true);
+        list.splice(i, 1); render(null); A.changed(true);
         const j = Math.min(i, list.length - 1);
         (body.querySelectorAll('[aria-label^="Remove layer"]:not([disabled])')[j] || add).focus();
       }, { cls: 'sm danger', attrs: { disabled: list.length <= 1 } });
       return h('div', { class: 'layer-card sortable-item', role: 'group', 'aria-label': `Layer ${n}` },
         h('div', { class: 'layer-head' }, grip(`Move layer ${n}`), toggle, h('span', { class: 'layer-sw' }, thumb), dup, del), fields);
     }
-    function render() {
+    // Focus survives a rebuild: remember the focused control (card index, group, label or position) and find it again.
+    const FOCUSABLE = 'button, input, select, textarea, [tabindex="0"]';
+    function captureFocus() {
+      const a = document.activeElement;
+      if (!a || !body.contains(a)) return null;
+      const card = a.closest('.layer-card');
+      if (!card) return null;
+      const spec = { i: [...body.children].indexOf(card), nth: [...card.querySelectorAll(FOCUSABLE)].indexOf(a), label: a.getAttribute('aria-label') };
+      const grp = a.closest('[role="radiogroup"]'), chk = a.closest('label.check');
+      if (grp) spec.group = grp.getAttribute('aria-label');
+      if (chk) spec.check = chk.textContent;
+      return spec;
+    }
+    function restoreFocus(spec) {
+      if (!spec || !body.children.length) return;
+      const card = body.children[Math.min(spec.i, body.children.length - 1)];
+      const all = [...card.querySelectorAll(FOCUSABLE)];
+      const ok = (x) => x && !x.disabled && x.offsetParent !== null;
+      let el = null;
+      if (spec.first) el = card.querySelector('.grip');
+      else if (spec.group) { const g = [...card.querySelectorAll('[role="radiogroup"]')].find((x) => x.getAttribute('aria-label') === spec.group); el = g && g.querySelector('[aria-checked="true"]'); }
+      else if (spec.check) { const l = [...card.querySelectorAll('label.check')].find((x) => x.textContent === spec.check); el = l && l.querySelector('input'); }
+      else if (spec.label) el = all.find((x) => x.getAttribute('aria-label') === spec.label);
+      if (!ok(el)) el = all[spec.nth];
+      if (!ok(el)) el = card.querySelector('.layer-toggle');
+      if (el) el.focus();
+    }
+    // Rebuild one card in place (a Function or size change only affects that card).
+    function swapCard(i, spec = captureFocus()) {
+      const old = body.children[i];
+      if (!old) { render(spec); return; }
+      body.replaceChild(layerCard(list[i], i), old);
+      restoreFocus(spec);
+    }
+    // Rebuild the whole list. spec: undefined keeps the focused control, null leaves focus alone, an object picks one.
+    function render(spec = captureFocus()) {
       body.textContent = '';
       list.forEach((g, i) => body.append(layerCard(g, i)));
-      if (add) add.disabled = list.length >= Paint.MAX_LAYERS;
+      if (add) {
+        const full = list.length >= Paint.MAX_LAYERS;
+        add.setAttribute('aria-disabled', String(full)); // not disabled: focus stays and the tooltip still shows
+        add.dataset.tip = full ? `A paint can have up to ${Paint.MAX_LAYERS} layers.` : '';
+      }
       if (sec) sec.setCount(list.length);
+      restoreFocus(spec);
     }
-    sortable(body, (from, to) => { const [x] = list.splice(from, 1); list.splice(to, 0, x); render(); A.changed(true); });
+    sortable(body, (from, to) => { const [x] = list.splice(from, 1); list.splice(to, 0, x); render(null); A.changed(true); });
     add = btn('Add layer', () => {
       if (list.length >= Paint.MAX_LAYERS) { toast(`A paint can have up to ${Paint.MAX_LAYERS} layers.`); return; }
-      list.unshift(newLayer()); render(); A.changed(true);
+      list.unshift(newLayer()); render({ i: 0, first: true }); A.changed(true);
     }, 'secondary small', 'plus');
-    render();
+    render(null);
     sec = panel('Gradient layers', [h('p', { class: 'hint' }, '7TV draws the first layer on top. A layer’s size and position are fractions of the name box.'), body, h('div', { class: 'row' }, add)], [], { count: list.length });
     return sec;
   }
@@ -5906,12 +6010,16 @@ window.PL = window.PL || {};
         h('span', { class: 'ttext' }, parts.map((x) => (typeof x === 'string' ? x : x.e ? svgSpan('temote ' + x.e, EMOTES[x.e]) : mkMe('twho me'))))));
     }
     box.append(...names, chat);
-    box.append(h('span', { class: 'sr-only' }, 'Painted name preview of ' + A.state.preview.text));
-    return { el: p, names, chatNames, box };
+    const sr = h('span', { class: 'sr-only' }, 'Painted name preview of ' + A.state.preview.text);
+    box.append(sr);
+    return { el: p, names, chatNames, box, sr };
   }
 
   A.pv = null; // current preview handles
-  function refreshPreview() { if (A.state.mode === 'static') updateStaticPreview(); else A.rt.redraw = true; }
+  function refreshPreview() {
+    if (A.pv && A.pv.sr) A.pv.sr.textContent = 'Painted name preview of ' + A.state.preview.text;
+    if (A.state.mode === 'static') updateStaticPreview(); else A.rt.redraw = true;
+  }
 
   function updateStaticPreview() {
     if (!A.pv || A.state.mode !== 'static') return;
@@ -6131,6 +6239,10 @@ window.PL = window.PL || {};
   const setP = (o, path, v) => { const ps = path.split('.'); let x = o; for (let i = 0; i < ps.length - 1; i++) { if (x == null) return; x = x[ps[i]]; } if (x != null) x[ps[ps.length - 1]] = v; };
   const MAX_KEYS = 32, MAX_PATHS = 40; // what sanitizeKeys keeps
   const XF_LABELS = { scale: 'Scale', rotate: 'Rotate', ox: 'Offset x', oy: 'Offset y' };
+  // one limit toast per gesture (a slider drag, a typed value, a click): reset on commit and on pointerup
+  let warned = false;
+  const warnOnce = (msg) => { if (warned) return; warned = true; toast(msg); };
+  addEventListener('pointerup', () => { warned = false; }, true);
   const KF = {
     EASES: [['ease', 'Ease'], ['linear', 'Linear'], ['hold', 'Hold'], ['in', 'Ease in'], ['out', 'Ease out']],
     frames: () => E.frameCount(A.state.anim),
@@ -6145,14 +6257,22 @@ window.PL = window.PL || {};
     // the value shown at moment t (default: the playhead)
     value(item, path, t) { const ks = KF.list(item, path); return ks ? E.keyValue(ks, t ?? KF.now().t) : getP(item, path); },
     at(item, path, t) { const ks = KF.list(item, path); if (!ks) return null; const f = KF.frameOf(t); return ks.find((k) => KF.frameOf(k.t) === f) || null; },
+    // why a key can't be added at t (default: the playhead), or '' when it can (an existing key can always change)
+    limit(item, path, t) {
+      if (KF.at(item, path, t ?? KF.now().t)) return '';
+      const ks = KF.list(item, path) || [];
+      if (ks.length >= MAX_KEYS) return `A value can have up to ${MAX_KEYS} keys.`;
+      if (!ks.length && KF.paths(item).length >= MAX_PATHS) return `Up to ${MAX_PATHS} values can be animated per layer.`;
+      return '';
+    },
     // add or update the key at t (default: the playhead); returns { key, created } or null at the limit
     put(item, path, v, t) {
       t = KF.snap(t ?? KF.now().t);
       const hit = KF.at(item, path, t);
       if (hit) { hit.v = v; return { key: hit, created: false }; }
+      const why = KF.limit(item, path, t);
+      if (why) { warnOnce(why); return null; }
       const ks = KF.list(item, path) || [];
-      if (ks.length >= MAX_KEYS) { toast(`A value can have up to ${MAX_KEYS} keys.`); return null; }
-      if (!ks.length && KF.paths(item).length >= MAX_PATHS) { toast(`Up to ${MAX_PATHS} values can be animated per layer.`); return null; }
       const key = { t, v, e: 'ease' };
       ks.push(key); ks.sort((a, b) => a.t - b.t);
       item.keys = item.keys || {}; item.keys[path] = ks;
@@ -6170,6 +6290,8 @@ window.PL = window.PL || {};
       if (Number.isFinite(v)) setP(item, path, Math.round(v * 1e4) / 1e4);
       if (!Object.keys(item.keys).length) delete item.keys;
     },
+    // the gesture is over: the next limit hit toasts again
+    endGesture() { warned = false; },
     label(item, kind, path) {
       if (path === 'opacity') return 'Opacity';
       if (path.startsWith('xf.')) return XF_LABELS[path.slice(3)] || path.slice(3);
@@ -6195,16 +6317,17 @@ window.PL = window.PL || {};
   const CLIP = '<path d="M6 4v7a4 4 0 0 0 4 4h9"/><path d="m15 11 4 4-4 4"/>';
 
   // Key buttons of the open settings panel, kept in step with the playhead.
-  let live = []; // { kb, item, path, sl }
-  function keyBtn(label, item, path, sl) {
+  let live = []; // { kb, item, path, sl, show }; show(t): extra display kept in step (the strength chips)
+  function keyBtn(label, item, path, sl, show) {
     const name = 'Keyframe for ' + label;
     const kb = h('button', { type: 'button', class: 'icon-btn sm kf-btn', 'aria-label': name, 'data-tip': name, 'aria-pressed': 'false', onclick: () => toggleKey(item, path) }, svg(DIAMOND));
-    const x = { kb, item, path, sl };
+    const x = { kb, item, path, sl, show };
     kb._kf = x; live.push(x); syncKey(x);
     return kb;
   }
   // off: not animated (small outline) · anim: animated, no key here (ring with a dot) · key: a key at this frame (filled)
   function syncKey(x, t = KF.now().t) {
+    if (x.show) x.show(t);
     const anim = KF.animated(x.item, x.path), here = anim && !!KF.at(x.item, x.path, t);
     const st = here ? 'key' : anim ? 'anim' : 'off';
     if (x.kb.dataset.state === st) return;
@@ -6215,6 +6338,7 @@ window.PL = window.PL || {};
   function toggleKey(item, path) {
     const { t } = KF.now();
     const here = KF.at(item, path, t);
+    KF.endGesture(); // a click is a gesture of its own
     if (here) KF.remove(item, path, here);
     else if (!KF.put(item, path, KF.value(item, path, t), t)) return;
     A.changed(true); keysChanged();
@@ -6240,12 +6364,13 @@ window.PL = window.PL || {};
         if (KF.animated(item, path)) {
           A.pause && A.pause();
           const r = KF.put(item, path, x);
+          if (!r) { sl.set(KF.value(item, path)); return; } // at the key limit: the slider goes straight back
           syncKey(kb._kf);
           if (r && r.created && A.refreshTimeline) A.refreshTimeline();
         } else KF.setBase(item, path, x);
         opts.onInput && opts.onInput(x);
       },
-      onCommit: (x) => { opts.onCommit && opts.onCommit(x); if (KF.animated(item, path)) keysChanged(); },
+      onCommit: (x) => { KF.endGesture(); opts.onCommit && opts.onCommit(x); if (KF.animated(item, path)) keysChanged(); },
     }));
     const kb = keyBtn(label, item, path, sl);
     sl.querySelector('.top').append(kb);
@@ -6253,14 +6378,28 @@ window.PL = window.PL || {};
   }
 
   // Palette strengths live inside the shared palette editor, so they're keyed from a row of chips under it.
+  // The editor's sliders show the base strengths; an animated strength shows its value at the playhead on its chip.
   function strengthKeys(item, k, pal) {
     const row = h('div', { class: 'kf-str' });
-    row.rebuild = () => row.replaceChildren(h('span', { class: 'label' }, 'Animate colour strengths'), ...pal.colors.map((col, i) => {
-      const b = keyBtn(`colour ${i + 1} strength`, item, `params.${k}.colors.${i}.w`, null);
-      b.classList.add('kf-chip');
-      b.append(h('i', { style: { background: col.c } }), h('span', null, String(i + 1)));
-      return b;
-    }));
+    const note = h('p', { class: 'hint', hidden: true }, 'The strength sliders show base values. A chip shows its animated strength at the playhead.');
+    const pathOf = (i) => `params.${k}.colors.${i}.w`;
+    row.sync = () => { note.hidden = !pal.colors.some((_, i) => KF.animated(item, pathOf(i))); };
+    row.rebuild = () => {
+      row.replaceChildren(h('span', { class: 'label' }, 'Animate colour strengths'), ...pal.colors.map((col, i) => {
+        const val = h('span', { class: 'kf-val', hidden: true });
+        const show = (t) => {
+          const anim = KF.animated(item, pathOf(i));
+          val.hidden = !anim;
+          if (anim) val.textContent = PL.fmtNum(KF.value(item, pathOf(i), t), 2);
+          row.sync();
+        };
+        const b = keyBtn(`colour ${i + 1} strength`, item, pathOf(i), null, show);
+        b.classList.add('kf-chip');
+        b.append(h('i', { style: { background: col.c } }), h('span', null, String(i + 1)), val);
+        return b;
+      }), note);
+      row.sync();
+    };
     row.rebuild();
     return row;
   }
@@ -6311,6 +6450,107 @@ window.PL = window.PL || {};
     toast(`Ungrouped ${g.name}. Ctrl+Z brings it back.`);
   }
 
+  // Folding a group is a view setting, like an open panel: kept out of the document, so it's never an
+  // undo step (a later commit or Undo would otherwise pick a changed g.collapsed up). g.collapsed from a
+  // file is the default until the group is folded or opened here.
+  const FOLD_KEY = 'cyexPaints.foldedGroups';
+  let foldState = new Map(); // group id -> folded
+  try { const f = JSON.parse(localStorage.getItem(FOLD_KEY) || '[]'); if (Array.isArray(f)) foldState = new Map(f.filter((x) => Array.isArray(x) && x.length === 2)); } catch (e) {}
+  const saveFold = () => { try { localStorage.setItem(FOLD_KEY, JSON.stringify([...foldState].slice(-200))); } catch (e) {} };
+  const isFolded = (g) => (foldState.has(g.id) ? !!foldState.get(g.id) : !!g.collapsed);
+
+  // ---- moving rows of the layers list (top first): layers, and groups as a whole ----
+  // a row of the list: { g } for a group's folder row, { l } for a layer row
+  const rowsOf = (d, list) => [...list.children].filter((x) => x.classList.contains('sortable-item')).map((row) => {
+    const g = d.groups.find((x) => x.id === row.dataset.id);
+    return g ? { g } : { l: d.layers.find((x) => x.id === row.dataset.id) };
+  });
+  const runOf = (d, gid) => d.layers.filter((l) => l.group === gid); // bottom first, like the stack
+  const blockOf = (d, r) => (r.g ? runOf(d, r.g.id) : r.l.group ? runOf(d, r.l.group) : [r.l]);
+  // moves the layers of run next to block in the stack; below = under it in the list
+  function placeRun(L, run, block, below) {
+    for (const l of run) L.splice(L.indexOf(l), 1);
+    const i = below ? L.indexOf(block[0]) : L.indexOf(block[block.length - 1]) + 1;
+    L.splice(i, 0, ...run);
+  }
+  function moveLayerRow(d, m, T, below, kb) {
+    const L = d.layers;
+    if (T.l) {
+      const target = T.l;
+      if (target === m) return false;
+      if (kb && (m.group || '') !== (target.group || '')) {
+        // with the keyboard, crossing a group edge is a step of its own: leave the group in place, or join the next one
+        if (m.group) delete m.group;
+        else { m.group = target.group; normalizeGroups(d, m, !below); }
+      } else {
+        moveLayer(L, m, target, below);
+        // a dragged layer joins the group of the row it was dropped on (or leaves its own)
+        if (!kb) { if (target.group) m.group = target.group; else delete m.group; }
+      }
+      return true;
+    }
+    // onto a group's folder row
+    const g = T.g, run = runOf(d, g.id).filter((l) => l !== m);
+    if (m.group === g.id) { delete m.group; if (run.length) placeRun(L, [m], run, false); return true; } // its own: leaves it, above
+    if (kb && m.group) { delete m.group; return true; } // leaving its own group first, as above
+    if (!run.length) { m.group = g.id; return true; } // an empty group: the layer starts it
+    if (below && !isFolded(g)) { m.group = g.id; normalizeGroups(d, m, false); return true; } // down onto an open group: joins on top
+    delete m.group; placeRun(L, [m], run, below); // up onto a group, or onto a folded one: past the whole group
+    return true;
+  }
+  function moveGroup(d, rows, from, to, kb) {
+    const g = rows[from].g, run = runOf(d, g.id), below = to > from;
+    if (!run.length) {
+      // empty groups sit on top: only their order among themselves changes
+      const T = rows[to];
+      if (!T || !T.g || runOf(d, T.g.id).length) return false;
+      const G = d.groups; G.splice(G.indexOf(g), 1); G.splice(G.indexOf(T.g) + (below ? 1 : 0), 0, g);
+      return true;
+    }
+    let T = rows[to];
+    if (kb) {
+      // the keyboard steps past a whole neighbour: the row above the folder row, or the first row after the group's layers
+      let j = from + (below ? 1 : -1);
+      if (below) while (rows[j] && rows[j].l && rows[j].l.group === g.id) j++;
+      T = rows[j];
+    }
+    if (!T || (T.l && T.l.group === g.id)) return false;
+    if (T.g && !runOf(d, T.g.id).length) return false; // the empty groups on top stay on top
+    placeRun(d.layers, run, blockOf(d, T), below);
+    return true;
+  }
+  function moveRow(d, list, from, to, kb) {
+    const rows = rowsOf(d, list), r = rows[from];
+    if (!r || !rows[to] || from === to) return;
+    const id = r.g ? r.g.id : r.l && r.l.id; if (!id) return;
+    // the keyboard keeps the moved row's grip, also when nothing could move (after sortable's own refocus)
+    const f = () => $(`#editor [data-id="${id}"] .grip`)?.focus();
+    if (!(r.g ? moveGroup(d, rows, from, to, kb) : moveLayerRow(d, r.l, rows[to], to > from, kb))) { if (kb) setTimeout(() => setTimeout(f)); return; }
+    normalizeGroups(d);
+    A.renderEditor(); A.changed(true);
+    if (kb) { f(); setTimeout(() => setTimeout(f)); }
+  }
+
+  // layers list (top layer first), with group folders; layers of a folded group aren't listed
+  function layersList(d) {
+    const gById = new Map(d.groups.map((g) => [g.id, g]));
+    const list = h('div', { class: 'list', role: 'list', 'aria-label': 'Layers, top first' });
+    const items = [...d.layers].reverse();
+    if (!items.length && !d.groups.length) list.append(h('div', { class: 'empty', role: 'listitem' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
+    const counts = new Map();
+    for (const l of d.layers) if (l.group) counts.set(l.group, (counts.get(l.group) || 0) + 1);
+    for (const g of d.groups) if (!counts.has(g.id)) list.append(groupRow(d, g, 0)); // empty groups sit on top
+    const shown = new Set();
+    for (const l of items) {
+      const g = l.group ? gById.get(l.group) : null;
+      if (g && !shown.has(g.id)) { shown.add(g.id); list.append(groupRow(d, g, counts.get(g.id))); }
+      if (g && isFolded(g)) continue;
+      list.append(listItem(l, 'layer', d.layers, g));
+    }
+    sortable(list, (from, to, kb) => moveRow(d, list, from, to, kb));
+    return list;
+  }
+
   // =====================================================================================
   // Animated editor
   // =====================================================================================
@@ -6345,7 +6585,7 @@ window.PL = window.PL || {};
   function syncNames(item) {
     const s = findSel();
     const row = $(`#editor [data-id="${item.id}"]`);
-    const nb = row && row.querySelector('button.name'); if (nb) nb.textContent = item.name;
+    const nb = row && row.querySelector('button.name'); if (nb) { nb.textContent = item.name; nb.title = nameTitle(item.name, ITEM_RENAME); }
     const g = row && row.querySelector('.grip'); if (g) g.setAttribute('aria-label', 'Move ' + item.name);
     if (s && s.item === item) {
       const def = s.kind === 'layer' ? PL.LAYERS[item.type] : PL.EFFECTS[item.type];
@@ -6361,42 +6601,11 @@ window.PL = window.PL || {};
     const colA = h('div', { class: 'col' }), colB = h('div', { class: 'col settings-col' });
     root.append(colA, colB);
 
-    // layers list (top layer first), with group folders; layers of a collapsed group aren't listed
     if (!Array.isArray(d.groups)) d.groups = [];
-    const gById = new Map(d.groups.map((g) => [g.id, g]));
-    for (const l of d.layers) if (l.group && !gById.has(l.group)) delete l.group;
+    const gIds = new Set(d.groups.map((g) => g.id));
+    for (const l of d.layers) if (l.group && !gIds.has(l.group)) delete l.group;
     if (normalizeGroups(d)) A.rt.dirty = true; // only hand-edited files have split groups
-    const layerList = h('div', { class: 'list', role: 'list', 'aria-label': 'Layers, top first' });
-    const items = [...d.layers].reverse();
-    if (!items.length && !d.groups.length) layerList.append(h('div', { class: 'empty', role: 'listitem' }, icon('layers'), h('span', null, 'No layers yet. Add one, pick a preset, or drop an image here.')));
-    const counts = new Map();
-    for (const l of d.layers) if (l.group) counts.set(l.group, (counts.get(l.group) || 0) + 1);
-    for (const g of d.groups) if (!counts.has(g.id)) layerList.append(groupRow(d, g, 0)); // empty groups sit on top
-    const vis = []; // the layer rows in list order, for the drag indices
-    const shown = new Set();
-    for (const l of items) {
-      const g = l.group ? gById.get(l.group) : null;
-      if (g && !shown.has(g.id)) { shown.add(g.id); layerList.append(groupRow(d, g, counts.get(g.id))); }
-      if (g && g.collapsed) continue;
-      layerList.append(listItem(l, 'layer', d.layers, g)); vis.push(l);
-    }
-    sortable(layerList, (from, to, kb) => {
-      const m = vis[from], target = vis[to];
-      if (!m || !target || m === target) return;
-      const below = to > from;
-      if (kb && (m.group || '') !== (target.group || '')) {
-        // with the keyboard, crossing a group edge is a step of its own: leave the group in place, or join the next one
-        if (m.group) delete m.group;
-        else { m.group = target.group; normalizeGroups(d, m, !below); }
-      } else {
-        moveLayer(d.layers, m, target, below);
-        // a dragged layer joins the group of the row it was dropped on (or leaves its own)
-        if (!kb) { if (target.group) m.group = target.group; else delete m.group; }
-      }
-      normalizeGroups(d);
-      A.renderEditor(); A.changed(true);
-      if (kb) { const f = () => $(`#editor [data-id="${m.id}"] .grip`)?.focus(); f(); setTimeout(() => setTimeout(f)); } // after sortable's own refocus
-    });
+    const layerList = layersList(d);
     colA.append(panel('Layers', [layerList, h('div', { class: 'row' },
       btn('Add layer', () => A.openLibrary('layer'), 'secondary small', 'plus'),
       btn('Add element', () => A.openLibrary('layer', 'Scene elements'), 'ghost small', 'sparkles'),
@@ -6419,6 +6628,21 @@ window.PL = window.PL || {};
     scheduleThumbs(true);
   }
 
+  // A new frame count (fps or loop length): every key moves to a whole frame of the new count,
+  // and of two keys that land on one frame the later one stays
+  function resnapKeys(d) {
+    const n = E.frameCount(d);
+    for (const it of [...d.layers, ...d.effects]) {
+      if (!it.keys) continue;
+      for (const [path, ks] of Object.entries(it.keys)) {
+        if (!Array.isArray(ks)) continue;
+        const at = new Map();
+        for (const k of ks.slice().sort((a, b) => a.t - b.t)) at.set(PL.clamp(Math.round(k.t * n), 0, n - 1), k);
+        it.keys[path] = [...at].sort((a, b) => a[0] - b[0]).map(([f, k]) => { k.t = f / n; return k; });
+      }
+    }
+  }
+
   function paintPanel(d) {
     const info = h('span', { class: 'stat' });
     const setInfo = () => { info.textContent = `${E.frameCount(d)} frames · ${PL.fmtNum(d.duration, 1)} s · ${Math.round(100 / d.fps)} cs per frame`; };
@@ -6433,8 +6657,8 @@ window.PL = window.PL || {};
       group('Size and timing', [
         h('div', { class: 'ctl' }, h('div', { class: 'top' }, h('span', { class: 'label' }, 'Size'), wIn, h('span', { class: 'unit' }, '×'), hIn, h('span', { class: 'unit' }, 'px')), sizePresets,
           h('p', { class: 'hint' }, '7TV stretches the image across the name, so a wide strip works best.')),
-        labeled('Frames per second', seg(FPS, d.fps, (v) => { d.fps = v; setInfo(); A.changed(true); }, 'Frames per second')),
-        slider('Loop length', d.duration, { min: 0.4, max: 8, step: 0.1, unit: 's', onInput: (v) => { d.duration = v; setInfo(); A.changed(false); }, onCommit: () => A.commit() }),
+        labeled('Frames per second', seg(FPS, d.fps, (v) => { d.fps = v; setInfo(); resnapKeys(d); A.changed(true); keysChanged(); }, 'Frames per second')),
+        slider('Loop length', d.duration, { min: 0.4, max: 8, step: 0.1, unit: 's', onInput: (v) => { d.duration = v; setInfo(); A.changed(false); }, onCommit: () => { resnapKeys(d); A.changed(true); keysChanged(); } }),
         info,
       ]),
       group('Recolour everything', A.tweakControls(d.tweak, 'Shifts the colours of the whole paint, after all layers and effects.')),
@@ -6454,40 +6678,62 @@ window.PL = window.PL || {};
     return b;
   }
 
-  // A group's folder row: the name button collapses (click or Enter), F2 or double-click renames, Delete ungroups.
+  // the name buttons' tooltip: the full name (it may be cut off), then how to rename
+  const nameTitle = (name, how) => name + '\n' + how;
+  const ITEM_RENAME = 'Double-click or F2 to rename', GROUP_RENAME = 'Double-click the name or F2 to rename';
+
+  // A group's folder row: the grip moves the whole group (drag, or Alt+Up and Alt+Down), the name button
+  // folds and opens it at once (click, Enter or Space), F2 or a double-click on the name renames, Delete ungroups.
   function groupRow(d, g, count) {
     const text = h('span', null, g.name);
-    let clickT = 0;
-    const toggle = () => { g.collapsed = !g.collapsed; A.renderEditor(); A.changed(true); };
-    // a single click waits a moment, so a double-click can rename instead
-    const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-expanded': String(!g.collapsed), onclick: (e) => { clearTimeout(clickT); if (e.detail > 1) return; if (e.detail === 0) toggle(); else clickT = setTimeout(toggle, 220); } }, icon('chevron'), text);
-    nameEl.addEventListener('dblclick', () => {
-      clearTimeout(clickT);
+    const inName = h('span', { class: 'sr-only', id: 'gin-' + g.id }, 'In ' + g.name); // members' description
+    const gr = grip('Move ' + g.name);
+    let row = null;
+    // in place, no re-render and no history step: the member rows are added or removed under the folder row
+    const toggle = () => {
+      const fold = !isFolded(g);
+      foldState.set(g.id, fold); saveFold();
+      nameEl.setAttribute('aria-expanded', String(!fold));
+      const list = row.parentElement; if (!list) return;
+      if (fold) { for (const r of [...list.children]) if (r.dataset.group === g.id) r.remove(); return; }
+      const members = d.layers.filter((l) => l.group === g.id).reverse(); // top first
+      row.after(...members.map((l) => listItem(l, 'layer', d.layers, g)));
+      scheduleThumbs(true);
+    };
+    const nameEl = h('button', { type: 'button', class: 'name', title: nameTitle(g.name, GROUP_RENAME), 'aria-expanded': String(!isFolded(g)), onclick: (e) => { if (e.detail < 2) toggle(); } }, icon('chevron'), text);
+    const rename = () => {
       const inp = h('input', { class: 'field rename', value: g.name, maxlength: 64, 'aria-label': 'Rename group' });
       let finished = false;
       const done = (ok, byKey) => {
         if (finished) return; finished = true;
-        if (ok && inp.value.trim() && inp.value.trim() !== g.name) { g.name = inp.value.trim(); text.textContent = g.name; A.changed(true); }
+        if (ok && inp.value.trim() && inp.value.trim() !== g.name) {
+          g.name = inp.value.trim(); text.textContent = g.name; inName.textContent = 'In ' + g.name;
+          nameEl.title = nameTitle(g.name, GROUP_RENAME); gr.setAttribute('aria-label', 'Move ' + g.name);
+          A.changed(true);
+        }
         inp.replaceWith(nameEl);
         if (byKey) nameEl.focus();
       };
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); done(true, true); } if (e.key === 'Escape') { e.preventDefault(); done(false, true); } e.stopPropagation(); });
       inp.addEventListener('blur', () => done(true));
       nameEl.replaceWith(inp); inp.focus(); inp.select();
-    });
-    return h('div', {
-      class: 'item ghdr' + (g.visible ? '' : ' off'), role: 'listitem', 'data-id': g.id,
+    };
+    // a double-click's first click already folded or opened the group: undo that, then rename
+    text.addEventListener('dblclick', () => { toggle(); rename(); });
+    row = h('div', {
+      class: 'item ghdr sortable-item' + (g.visible ? '' : ' off'), role: 'listitem', 'data-id': g.id,
       onkeydown: (e) => {
         if (e.target !== nameEl) return;
-        if (e.key === 'F2') { e.preventDefault(); nameEl.dispatchEvent(new MouseEvent('dblclick')); }
+        if (e.key === 'F2') { e.preventDefault(); rename(); }
         if (e.key === 'Delete') { e.preventDefault(); ungroup(d, g); }
       },
     },
-    h('span', { class: 'gicon', 'aria-hidden': 'true' }, icon('folder')), nameEl,
+    gr, h('span', { class: 'gicon', 'aria-hidden': 'true' }, icon('folder')), nameEl, inName,
     h('span', { class: 'meta' }, count === 1 ? '1 layer' : `${count} layers`),
     h('span', { class: 'tools' },
       iconBtn(g.visible ? 'eye' : 'eyeOff', 'Visible', () => { g.visible = !g.visible; A.renderEditor(); A.changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(g.visible), 'data-tip': g.visible ? 'Hide group' : 'Show group' } }),
-      iconBtn('trash', 'Delete group', () => ungroup(d, g), { cls: 'sm danger', attrs: { 'data-hint': 'Keeps its layers' } })));
+      iconBtn('x', 'Ungroup', () => ungroup(d, g), { cls: 'sm', attrs: { 'data-hint': 'Keeps its layers' } })));
+    return row;
   }
 
   function listItem(item, kind, list, grp) {
@@ -6497,7 +6743,8 @@ window.PL = window.PL || {};
     const idx = list.indexOf(item);
     const select_ = () => selectItem(kind, item.id);
     // the name is the row's real control: a named button that selects (Enter or Space), F2 or double-click renames, Delete removes
-    const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-current': isSel ? 'true' : null, 'aria-describedby': null, onclick: () => select_() }, item.name || def.name);
+    // a group member's name is described as "In <group>"
+    const nameEl = h('button', { type: 'button', class: 'name', title: nameTitle(item.name || def.name, ITEM_RENAME), 'aria-current': isSel ? 'true' : null, 'aria-describedby': grp ? 'gin-' + grp.id : null, onclick: () => select_() }, item.name || def.name);
     nameEl.addEventListener('dblclick', () => {
       const inp = h('input', { class: 'field rename', value: item.name || def.name, maxlength: 64, 'aria-label': 'Rename' });
       let finished = false;
@@ -6516,7 +6763,7 @@ window.PL = window.PL || {};
     if (kind === 'layer' && item.blend !== 'normal') meta.push((PL.BLENDS.find((b) => b[0] === item.blend) || [, ''])[1].split(' (')[0]);
     if (kind === 'layer' && item.opacity < 1) meta.push(Math.round(item.opacity * 100) + '%');
     const el = h('div', {
-      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off') + (grp ? ' ingroup' : '') + (grp && !grp.visible ? ' ghidden' : '') + (kind === 'layer' && item.clip ? ' clipped' : ''), role: 'listitem', 'data-id': item.id,
+      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off') + (grp ? ' ingroup' : '') + (grp && !grp.visible ? ' ghidden' : '') + (kind === 'layer' && item.clip ? ' clipped' : ''), role: 'listitem', 'data-id': item.id, 'data-group': grp ? grp.id : null,
       onclick: (e) => { if (e.target.closest('button, input')) return; select_(); },
       onkeydown: (e) => {
         if (e.target !== nameEl) return;
@@ -6532,7 +6779,7 @@ window.PL = window.PL || {};
     h('span', { class: 'tools' },
       iconBtn(item.visible ? 'eye' : 'eyeOff', 'Visible', () => { item.visible = !item.visible; A.renderEditor(); A.changed(true); }, { cls: 'sm', attrs: { 'aria-pressed': String(item.visible), 'data-tip': item.visible ? 'Hide' : 'Show' } }),
       iconBtn('dup', 'Duplicate', () => { const c = clone(item); c.id = PL.uid(kind[0]); list.splice(idx + 1, 0, c); A.state.sel = { kind, id: c.id }; A.renderEditor(); A.changed(true); }, { cls: 'sm' }),
-      iconBtn('trash', 'Delete', () => remove(), { cls: 'sm danger', attrs: { 'data-hint': 'Delete key' } })));
+      iconBtn('trash', 'Delete', () => remove(), { cls: 'sm danger', attrs: { 'data-hint': 'Delete (Del)' } })));
     function remove() { list.splice(list.indexOf(item), 1); if (isSel) A.state.sel = null; A.renderEditor(); A.changed(true); toast(`Removed ${item.name || def.name}. Ctrl+Z brings it back.`); }
     return el;
   }
@@ -6579,9 +6826,15 @@ window.PL = window.PL || {};
             // a strength slider moved while that strength is animated: it sets the key at the playhead
             cols.forEach((col, i) => {
               if (col.w === prevW[i] || !KF.animated(item, pre + i + '.w')) return;
-              A.pause && A.pause(); KF.put(item, pre + i + '.w', col.w); keyed = true;
+              A.pause && A.pause();
+              if (KF.put(item, pre + i + '.w', col.w)) { keyed = true; return; }
+              // at the key limit: the strength and its slider go straight back
+              col.w = prevW[i];
+              const r = ed.querySelector(`input[type="range"][aria-label="Colour ${i + 1} strength"]`);
+              if (r) { r.value = col.w; r.style.setProperty('--p', (col.w / 4) * 100 + '%'); }
             });
           }
+          if (c) KF.endGesture();
           prev = cols.slice(); prevW = cols.map((x) => x.w);
           if (keyed) pending = true;
           if (!same || c) keysRow.rebuild(); // colour count, order and swatches
@@ -6630,6 +6883,15 @@ window.PL = window.PL || {};
         A.changed(true);
       });
       clip.dataset.tip = 'Clip to layer below'; clip.dataset.hint = 'Shows this layer only where the layer under it is drawn';
+      // nothing below to clip to: the bottom layer, or the bottom of its group (still on, it can be turned off)
+      const L = d.layers, bottom = L[0] === item || (!!item.group && L.find((l) => l.group === item.group) === item);
+      let why = null;
+      if (bottom && !item.clip) {
+        const msg = item.group ? 'It’s the bottom layer of its group, so there’s nothing below it to clip to' : 'It’s the bottom layer, so there’s nothing below it to clip to';
+        why = h('span', { class: 'sr-only', id: 'clipWhy' }, msg);
+        const box = clip.querySelector('input'); box.disabled = true; box.setAttribute('aria-describedby', 'clipWhy');
+        clip.dataset.hint = msg;
+      }
       top.push(h('div', { class: 'split' },
         labeled('Group', select(gOpts, item.group || '', (v) => {
           if (v === '+new') { if (!addGroup(d, item)) { A.renderEditor(); return; } }
@@ -6637,7 +6899,7 @@ window.PL = window.PL || {};
           else { delete item.group; normalizeGroups(d); }
           A.renderEditor(); A.changed(true);
         }, 'Group')),
-        h('div', { class: 'ctl kf-clip' }, clip)));
+        h('div', { class: 'ctl kf-clip' }, clip, why)));
     }
     const groups = new Map();
     for (const pd of def.params) {
@@ -6770,13 +7032,31 @@ window.PL = window.PL || {};
 
   let picked = null;   // the key object last clicked or focused: the easing picker edits it
   let tidyTimer = 0;   // keyboard moves re-sort the row once the keys are let go for a moment
+  // the diamonds by frame and the ones lit at the playhead, so a frame change only touches keys whose state changes
+  let byFrame = new Map(), lit = new Set(), curFrame = -1;
+  const NONE = new Set();
   const pct = (t) => t * 100 + '%';
   const easeName = (e) => (A.kf.EASES.find(([k]) => k === e) || A.kf.EASES[0])[1];
+  const easeWord = (e) => easeName(e).toLowerCase();
   const frameAt = (el, x) => { const r = el.getBoundingClientRect(), n = A.kf.frames(); return PL.clamp(Math.round(((x - r.left) / (r.width || 1)) * n), 0, n - 1); };
   const pathOf = (item, k) => A.kf.paths(item).find((p) => A.kf.list(item, p).includes(k)) || null;
+  // no colons in labels: focus restore matches the part before one
+  const KEY_HINT = 'Left and Right move the key one frame, with Shift ten. Alt+Left and Alt+Right go to the previous or next key, Home and End to the first or last. Enter changes the easing, Delete removes it.';
 
+  // polite status inside the timeline: cleared first, so the same message is read again
+  let sayTimer = 0;
+  function announce(msg) {
+    const st = $('#timeline .tl-status'); if (st) st.textContent = '';
+    clearTimeout(sayTimer);
+    sayTimer = setTimeout(() => { const s = $('#timeline .tl-status'); if (s) s.textContent = msg; }, 60);
+  }
+
+  // the status and the key hint live outside the rebuilt body, so a refresh doesn't cut an announcement off
   function timeline(s) {
-    const root = h('div', { class: 'tl', id: 'timeline' });
+    const root = h('div', { class: 'tl', id: 'timeline' },
+      h('div', { class: 'tl-body' }),
+      h('p', { class: 'sr-only tl-status', role: 'status', 'aria-live': 'polite' }),
+      h('span', { class: 'sr-only', id: 'tlKeyHint' }, KEY_HINT));
     fill(root, s);
     return root;
   }
@@ -6787,6 +7067,7 @@ window.PL = window.PL || {};
     root.dataset.item = item.id; root.dataset.n = String(n);
     const paths = kf.paths(item);
     if (picked && !pathOf(item, picked)) picked = null;
+    byFrame = new Map(); lit = new Set(); curFrame = frame;
 
     const ruler = h('div', { class: 'tl-lane tl-ruler', role: 'slider', tabindex: '0', 'aria-label': 'Playhead', 'aria-valuemin': '1', 'aria-valuemax': String(n), 'data-tip': 'Playhead', 'data-hint': 'Click or drag to move it. Arrow keys step a frame' });
     const every = n <= 50 ? 1 : n <= 100 ? 2 : n <= 200 ? 5 : 10; // ticks stay at least a few pixels apart
@@ -6802,14 +7083,24 @@ window.PL = window.PL || {};
       A.pause(); A.seek((((to % n2) + n2) % n2) / n2); // wraps: it's a loop
     });
 
-    const grid = h('div', { class: 'tl-grid' },
+    // one playhead line over every lane, moved with a transform (no per-frame restyle of the rows)
+    const ph = h('div', { class: 'tl-ph', 'aria-hidden': 'true', hidden: true });
+    root._ph = ph;
+    const grid = h('div', { class: 'tl-grid' }, ph,
       h('div', { class: 'tl-row tl-rulerrow' }, h('span', { class: 'tl-name' }, 'Frame'), ruler, h('span', { class: 'tl-gap' })));
     for (const path of paths) grid.append(row(item, kind, path, n));
 
-    root.replaceChildren(
+    root.querySelector('.tl-body').replaceChildren(
       h('div', { class: 'tl-head' }, h('span', { class: 'label' }, 'Playhead'), h('span', { class: 'tl-now' })),
       grid,
       paths.length ? editor(item, kind) : h('p', { class: 'hint' }, 'Nothing is animated yet. Use the diamond next to a slider to add a key at the playhead.'));
+    // the line follows the ruler's box, measured when the layout changes rather than every frame
+    if (root._ro) root._ro.disconnect();
+    root._geo = null; root._ro = null;
+    if (window.ResizeObserver) {
+      root._ro = new ResizeObserver(() => { root._geo = { x: ruler.offsetLeft, w: ruler.offsetWidth }; placePh(root); });
+      root._ro.observe(ruler);
+    }
     update(root, frame, n);
   }
 
@@ -6817,20 +7108,43 @@ window.PL = window.PL || {};
     const kf = A.kf, label = kf.label(item, kind, path);
     const lane = h('div', { class: 'tl-lane', role: 'group', 'aria-label': label + ' keys' });
     for (const k of kf.list(item, path)) lane.append(diamond(item, kind, path, k, label, n));
+    // roving tabindex: one tab stop per row, the picked key or else the first
+    const ds = [...lane.children];
+    const cur = ds.find((x) => x._key === picked) || ds[0];
+    for (const x of ds) x.tabIndex = x === cur ? 0 : -1;
     scrubber(lane);
     const stop = iconBtn('x', 'Stop animating ' + label, () => {
       kf.clear(item, path);
       if (picked && !pathOf(item, picked)) picked = null;
       A.changed(true); A.keysChanged({ focus: null });
+      announce(`${label} is no longer animated`);
     }, { cls: 'sm', attrs: { 'data-hint': 'Keeps the value at the playhead' } });
     return h('div', { class: 'tl-row', 'data-path': path }, h('span', { class: 'tl-name', title: label }, label), lane, stop);
   }
+  const rove = (d) => { for (const x of d.parentElement.querySelectorAll('.tl-key')) x.tabIndex = x === d ? 0 : -1; };
+  const diamondOf = (k) => [...document.querySelectorAll('#timeline .tl-key')].find((x) => x._key === k) || null;
 
-  // A key: drag to retime (snaps to frames, dropping on another key replaces it), click to go to it.
-  // Keyboard: ArrowLeft/Right one frame (Shift: 10), Enter cycles the easing, Delete removes.
+  // The free frame for a key moved from cur towards f: hops over keys ahead, and at the first or
+  // last frame takes the nearest free one before it. Returns cur when there's no room.
+  function freeFrame(taken, cur, f, dir, nn) {
+    f = PL.clamp(f, 0, nn - 1);
+    let g = f;
+    while (g >= 0 && g < nn && taken.has(g)) g += dir;
+    if (g < 0 || g >= nn) { g = f; while (g !== cur && taken.has(g)) g -= dir; }
+    return g;
+  }
+  // the free frame nearest to f, trying the side the key came from first; -1 when every frame holds a key
+  function nearestFree(taken, f, from, nn) {
+    const pref = from < f ? -1 : 1;
+    for (let dd = 1; dd < nn; dd++) for (const s of [pref, -pref]) { const c = f + s * dd; if (c >= 0 && c < nn && !taken.has(c)) return c; }
+    return -1;
+  }
+
+  // A key: drag to retime (snaps to frames; dropped on another key it moves to the nearest free frame),
+  // click to go to it. Keyboard: see KEY_HINT.
   function diamond(item, kind, path, k, label, n) {
     const kf = A.kf;
-    const d = h('button', { type: 'button', class: 'tl-key' + (k === picked ? ' sel' : ''), 'data-hint': 'Drag or use the arrow keys to move it. Enter changes the easing, Delete removes it' }, h('i'));
+    const d = h('button', { type: 'button', class: 'tl-key' + (k === picked ? ' sel' : ''), 'aria-current': k === picked ? 'true' : null, 'aria-describedby': 'tlKeyHint', 'data-hint': 'Drag or use the arrow keys to move it. Enter changes the easing, Delete removes it' }, h('i'));
     d._key = k;
     d.place = () => {
       const f = kf.frameOf(k.t);
@@ -6838,9 +7152,18 @@ window.PL = window.PL || {};
       d.dataset.e = k.e;
       d.setAttribute('aria-label', `${label} key at frame ${f + 1}, ${easeName(k.e)}`);
       d.dataset.tip = `Frame ${f + 1} · ${easeName(k.e)}`;
+      if (d._f !== f) {
+        if (byFrame.has(d._f)) byFrame.get(d._f).delete(d);
+        if (!byFrame.has(f)) byFrame.set(f, new Set());
+        byFrame.get(f).add(d); d._f = f;
+      }
+      const on = f === curFrame;
+      d.classList.toggle('now', on); if (on) lit.add(d); else lit.delete(d);
+      // the picked key's frame readout follows a move right away
+      if (k === picked) { const fr = $('#timeline .tl-frame'); if (fr) fr.textContent = `Frame ${f + 1}`; }
     };
     d.place();
-    d.addEventListener('focus', () => pick(item, kind, k));
+    d.addEventListener('focus', () => { rove(d); pick(item, kind, k); });
     d.addEventListener('click', (e) => { if (e.detail === 0) { A.pause(); A.seek(k.t); } }); // Space; pointer clicks are handled on release
     d.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
@@ -6861,12 +7184,21 @@ window.PL = window.PL || {};
         d.removeEventListener('pointermove', move); d.removeEventListener('pointerup', onUp); d.removeEventListener('pointercancel', onCancel); removeEventListener('keydown', onKey, true);
         d.classList.remove('dragging');
         if (!moved) { A.seek(k.t); return; }
-        if (cancel) { k.t = t0; A.changed(false); A.keysChanged({ focus: k }); return; }
+        if (cancel) { k.t = t0; A.changed(false); A.keysChanged({ focus: k }); announce('Key move cancelled'); return; }
         const ks = kf.list(item, path); if (!ks) return;
-        const f = kf.frameOf(k.t);
-        for (const o of ks.slice()) if (o !== k && kf.frameOf(o.t) === f) ks.splice(ks.indexOf(o), 1);
+        const nn = kf.frames(), f = kf.frameOf(k.t);
+        const taken = new Set(ks.filter((o) => o !== k).map((o) => kf.frameOf(o.t)));
+        let msg = '';
+        // dropped on another key: never replace it, take the nearest free frame instead
+        if (taken.has(f)) {
+          const g = nearestFree(taken, f, kf.frameOf(t0), nn);
+          if (g < 0) { k.t = t0; msg = `Every frame has a key. ${label} key stays at frame ${kf.frameOf(t0) + 1}`; }
+          else { k.t = g / nn; msg = `Frame ${f + 1} already has a key. `; }
+        }
         ks.sort((a, b) => a.t - b.t);
-        A.changed(true); A.keysChanged({ focus: k });
+        A.seek(k.t); A.changed(true); A.keysChanged({ focus: k });
+        if (!msg.startsWith('Every')) msg += `${label} key moved to frame ${kf.frameOf(k.t) + 1}, ${easeWord(k.e)}`;
+        announce(msg);
       };
       const onUp = () => end(false), onCancel = () => end(true);
       const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(true); } };
@@ -6874,37 +7206,49 @@ window.PL = window.PL || {};
       addEventListener('keydown', onKey, true);
     });
     d.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const ks = kf.list(item, path);
+      if (!ks) return;
+      const arrow = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+      if ((arrow && e.altKey) || e.key === 'Home' || e.key === 'End') {
+        // focus moves along the row, in time order (the DOM order may lag behind a keyboard move)
         e.preventDefault(); e.stopPropagation();
-        const ks = kf.list(item, path), nn = kf.frames(), dir = e.key === 'ArrowRight' ? 1 : -1;
-        if (!ks) return;
-        // hop over frames that already hold a key of this value
+        const i = ks.indexOf(k);
+        const to = e.key === 'Home' ? ks[0] : e.key === 'End' ? ks[ks.length - 1] : ks[i + (e.key === 'ArrowRight' ? 1 : -1)];
+        const el = to && to !== k && diamondOf(to);
+        if (el) el.focus();
+      } else if (arrow) {
+        e.preventDefault(); e.stopPropagation();
+        const nn = kf.frames(), dir = e.key === 'ArrowRight' ? 1 : -1, cur = kf.frameOf(k.t);
+        // hop over frames that already hold a key of this value; Shift stops at the first or last frame
         const taken = new Set(ks.filter((x) => x !== k).map((x) => kf.frameOf(x.t)));
-        let f = kf.frameOf(k.t) + dir * (e.shiftKey ? 10 : 1);
-        while (f >= 0 && f < nn && taken.has(f)) f += dir;
-        if (f < 0 || f >= nn) return;
+        const f = freeFrame(taken, cur, cur + dir * (e.shiftKey ? 10 : 1), dir, nn);
+        if (f === cur) return;
         k.t = f / nn; ks.sort((a, b) => a.t - b.t);
         d.place(); A.pause(); A.seek(k.t); A.changed(false); A.refreshKeyUI();
+        announce(`${label} key moved to frame ${f + 1}, ${easeWord(k.e)}`);
         clearTimeout(tidyTimer); tidyTimer = setTimeout(() => refreshTimeline(), 600); // DOM order follows time again
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault(); e.stopPropagation();
-        removeKey(item, path, k);
+        removeKey(item, kind, path, k);
       } else if (e.key === 'Enter') {
         e.preventDefault(); e.stopPropagation();
         const E_ = kf.EASES, i = E_.findIndex(([x]) => x === k.e);
         k.e = E_[(i + 1) % E_.length][0];
         d.place(); pick(item, kind, k, true); A.changed(true);
+        announce(`${label} key at frame ${kf.frameOf(k.t) + 1}, ${easeWord(k.e)}`);
       }
     });
     return d;
   }
 
-  function removeKey(item, path, k) {
-    const ks = A.kf.list(item, path); if (!ks) return;
+  function removeKey(item, kind, path, k) {
+    const kf = A.kf, ks = kf.list(item, path); if (!ks) return;
+    const label = kf.label(item, kind, path), f = kf.frameOf(k.t);
     const i = ks.indexOf(k), next = ks[i + 1] || ks[i - 1] || null;
-    A.kf.remove(item, path, k);
+    kf.remove(item, path, k);
     if (picked === k) picked = next;
     A.changed(true); A.keysChanged({ focus: next });
+    announce(next ? `${label} key at frame ${f + 1} deleted` : `${label} key deleted. ${label} is no longer animated`);
   }
 
   // click or drag on the ruler or an empty spot of a row moves the playhead
@@ -6922,7 +7266,8 @@ window.PL = window.PL || {};
     });
   }
 
-  // the picked key: which value, its frame, its easing (the curve from this key to the next one), delete
+  // the picked key: which value, its frame, its easing (the curve from this key to the next one),
+  // previous and next key (dense keys stay reachable), delete
   function editor(item, kind) {
     const box = h('div', { class: 'tl-edit' });
     paintEditor(box, item, kind);
@@ -6931,35 +7276,59 @@ window.PL = window.PL || {};
   function paintEditor(box, item, kind) {
     const kf = A.kf, k = picked, path = k && pathOf(item, k);
     if (!path) { box.replaceChildren(h('p', { class: 'hint' }, 'Pick a key to change its easing. Drag keys to retime them.')); return; }
+    const label = kf.label(item, kind, path), one = kf.list(item, path).length < 2;
+    const step = (dir) => () => {
+      const ks = kf.list(item, path); if (!ks || ks.length < 2) return;
+      const to = ks[(ks.indexOf(k) + dir + ks.length) % ks.length]; // wraps: it's a loop
+      picked = to; A.pause(); A.seek(to.t); refreshTimeline(); // focus stays on this button (matched by label)
+      announce(`${label} key at frame ${kf.frameOf(to.t) + 1}, ${easeWord(to.e)}`);
+    };
     box.replaceChildren(
-      h('div', { class: 'tl-sel' }, h('span', { class: 'label' }, kf.label(item, kind, path)), h('span', { class: 'tl-frame' }, `Frame ${kf.frameOf(k.t) + 1}`)),
-      h('div', { class: 'tl-ease' }, select(kf.EASES, k.e, (v) => { k.e = v; syncDiamond(k); A.changed(true); }, 'Easing')),
-      iconBtn('trash', 'Delete key', () => removeKey(item, path, k), { cls: 'sm danger', attrs: { 'data-hint': 'Delete key' } }),
+      h('div', { class: 'tl-sel' }, h('span', { class: 'label' }, label), h('span', { class: 'tl-frame' }, `Frame ${kf.frameOf(k.t) + 1}`)),
+      h('div', { class: 'tl-ease' }, select(kf.EASES, k.e, (v) => {
+        k.e = v; syncDiamond(k); A.changed(true);
+        announce(`${label} key at frame ${kf.frameOf(k.t) + 1}, ${easeWord(v)}`);
+      }, 'Easing')),
+      h('div', { class: 'tl-nav' },
+        iconBtn('chevron', 'Previous key', step(-1), { cls: 'sm tl-prev', attrs: { disabled: one, 'data-hint': 'Alt+Left on a key' } }),
+        iconBtn('chevron', 'Next key', step(1), { cls: 'sm tl-next', attrs: { disabled: one, 'data-hint': 'Alt+Right on a key' } })),
+      iconBtn('trash', 'Delete key', () => removeKey(item, kind, path, k), { cls: 'sm danger', attrs: { 'data-hint': 'Or Delete on the key' } }),
       h('p', { class: 'hint' }, 'Easing shapes the change from this key to the next one.'));
   }
   function pick(item, kind, k, force) {
     if (picked === k && !force) return;
     picked = k;
     const root = $('#timeline'); if (!root) return;
-    for (const d of root.querySelectorAll('.tl-key')) d.classList.toggle('sel', d._key === k);
+    for (const d of root.querySelectorAll('.tl-key')) {
+      const on = d._key === k;
+      d.classList.toggle('sel', on);
+      if (on) d.setAttribute('aria-current', 'true'); else d.removeAttribute('aria-current');
+    }
     const box = root.querySelector('.tl-edit');
     if (box && !box.contains(document.activeElement)) paintEditor(box, item, kind);
   }
-  function syncDiamond(k) {
-    const d = [...document.querySelectorAll('#timeline .tl-key')].find((x) => x._key === k);
-    if (d) d.place();
+  function syncDiamond(k) { const d = diamondOf(k); if (d) d.place(); }
+
+  function placePh(root) {
+    const ph = root._ph, g = root._geo, n = +root.dataset.n;
+    if (!ph || !g || !n) return;
+    ph.hidden = false;
+    ph.style.transform = `translateX(${g.x + (curFrame / n) * g.w}px)`;
   }
 
   // playhead, frame readout and the "key at the playhead" marks; cheap, runs on every frame change
   function update(root, f, n) {
     if (+root.dataset.n !== n) { refreshTimeline(); return; } // the loop length changed: rebuild the ruler
-    root.style.setProperty('--ph', String(f / n));
+    curFrame = f;
+    placePh(root);
     const fps = A.state.anim.fps;
     const now = root.querySelector('.tl-now');
     if (now) now.textContent = `${String(f + 1).padStart(String(n).length, '0')} / ${n} · ${PL.fmtNum(f / fps, 2)} s`;
     const ruler = root.querySelector('.tl-ruler');
     if (ruler) { ruler.setAttribute('aria-valuenow', String(f + 1)); ruler.setAttribute('aria-valuetext', `Frame ${f + 1} of ${n}`); }
-    for (const d of root.querySelectorAll('.tl-key')) d.classList.toggle('now', A.kf.frameOf(d._key.t) === f);
+    const on = byFrame.get(f) || NONE;
+    for (const d of lit) if (!on.has(d)) { d.classList.remove('now'); lit.delete(d); }
+    for (const d of on) if (!lit.has(d)) { d.classList.add('now'); lit.add(d); }
   }
   document.addEventListener('paint:frame', (e) => { const root = $('#timeline'); if (root && root.isConnected) update(root, e.detail.frame, e.detail.frames); });
 
@@ -6977,7 +7346,7 @@ window.PL = window.PL || {};
     if (gc) gc.textContent = String(A.kf.paths(s.item).length || '');
     if (!inside) return;
     const el = (key && [...root.querySelectorAll('.tl-key')].find((x) => x._key === key))
-      || (!a._key && label && [...root.querySelectorAll('button, [tabindex="0"]')].find((x) => (x.getAttribute('aria-label') || '').split(':')[0] === label))
+      || (!a._key && label && [...root.querySelectorAll('button:not(:disabled), [tabindex="0"]')].find((x) => (x.getAttribute('aria-label') || '').split(':')[0] === label))
       || root.querySelector('.tl-ruler');
     el.focus({ preventScroll: true });
   }
@@ -7011,6 +7380,7 @@ window.PL = window.PL || {};
     rt.ui = { playB, scrub, fno };
     root.append(p.el, A.animOutput());
     rt.redraw = true; rt.dirty = true;
+    rt.touchSel = null; // new canvases: the next tick sets their touch-action
     enableCanvasDrag(rt.texCv, (cv, e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; });
     A.pv.names.forEach((cv) => enableCanvasDrag(cv, (c, e) => {
       // the name canvas has shadow padding around the text box the paint is stretched over
@@ -7029,6 +7399,13 @@ window.PL = window.PL || {};
     if (byKey.cx && byKey.cy && /^Centre/.test(byKey.cx.l)) return { item: s.item, p: s.item.params, kx: 'cx', ky: 'cy' };
     return null;
   }
+  // While something draggable is selected, touch on the paint image and the big names places it
+  // instead of scrolling the page; otherwise they scroll as usual. Checked when the selection changes.
+  function syncTouch() {
+    const ta = dragTarget() ? 'none' : '';
+    if (rt.texCv) rt.texCv.style.touchAction = ta;
+    if (A.pv && A.pv.names) A.pv.names.forEach((cv) => { cv.style.touchAction = ta; });
+  }
   function enableCanvasDrag(cv, toUV) {
     cv.addEventListener('pointerenter', () => { cv.style.cursor = dragTarget() ? 'move' : ''; });
     cv.addEventListener('pointerdown', (e) => {
@@ -7040,8 +7417,13 @@ window.PL = window.PL || {};
       // an animated position gets a key at the playhead instead of a new plain value
       const keyed = A.kf && (A.kf.animated(tg.item, 'params.' + kx) || A.kf.animated(tg.item, 'params.' + ky));
       if (keyed) pause();
-      const put = (k, val) => { if (keyed && A.kf.animated(tg.item, 'params.' + k)) A.kf.put(tg.item, 'params.' + k, val); else tg.p[k] = val; };
+      const isKeyed = (k) => keyed && A.kf.animated(tg.item, 'params.' + k);
+      const put = (k, val) => { if (isKeyed(k)) A.kf.put(tg.item, 'params.' + k, val); else tg.p[k] = val; };
+      // at the key limit nothing moves (x and y together), with one toast per drag
+      const why = keyed ? [kx, ky].filter(isKeyed).map((k) => A.kf.limit(tg.item, 'params.' + k)).find(Boolean) : '';
+      let warned = false;
       const set = (ev) => {
+        if (why) { if (!warned) { warned = true; toast(why); } return; }
         const [u, v] = toUV(cv, ev);
         put(kx, Math.round(PL.clamp(u, -0.25, 1.25) * 100) / 100); put(ky, Math.round(PL.clamp(v, -0.25, 1.25) * 100) / 100);
         A.changed(false);
@@ -7049,6 +7431,8 @@ window.PL = window.PL || {};
       set(e);
       const up = () => {
         cv.removeEventListener('pointermove', set); cv.removeEventListener('pointerup', up); cv.removeEventListener('pointercancel', up);
+        if (A.kf) A.kf.endGesture();
+        if (why) return; // nothing changed
         const old = $('#settingsPanel'), s = A.findSel();
         if (old && s) { const fd = A.focusDescriptor(); old.replaceWith(A.settingsPanel(s)); A.restoreFocus(fd); }
         A.changed(true);
@@ -7124,7 +7508,10 @@ window.PL = window.PL || {};
   // The preview loop never throws: a failing layer shows one error and waits for the next edit.
   function tick(now) {
     requestAnimationFrame(tick);
-    if (A.state.mode !== 'anim' || !rt.texCv || (rt.broken && !rt.dirty)) return;
+    if (A.state.mode !== 'anim' || !rt.texCv) return;
+    const sel = A.state.sel ? A.state.sel.kind + ':' + A.state.sel.id : '';
+    if (sel !== rt.touchSel) { rt.touchSel = sel; syncTouch(); }
+    if (rt.broken && !rt.dirty) return;
     if (document.querySelector('.backdrop')) return; // a dialog covers the preview
     try { step(now); rt.broken = false; }
     catch (e) { console.error(e); rt.broken = true; rt.dirty = false; toast('Couldn’t draw this paint. Undo the last change or remove the layer that broke it.', 'error'); }
@@ -7164,7 +7551,7 @@ window.PL = window.PL || {};
 /* cyex paints: animated export (GIF, WebP, APNG, sprite sheet, name GIF), the size estimate and the export result. */
 (function (PL) {
   'use strict';
-  const { h, icon, btn, panel, slider, seg, checkbox, labeled, dialog, toast, download, slug } = PL.UI;
+  const { h, icon, iconBtn, btn, panel, slider, seg, checkbox, labeled, dialog, toast, download, slug } = PL.UI;
   const E = PL.Engine, Paint = PL.Paint, clone = PL.clone;
   const A = (PL.App = PL.App || {});
 
@@ -7212,7 +7599,7 @@ window.PL = window.PL || {};
         const now = performance.now(); if (force || now - lastAnnounce > 1500) { status.textContent = txt; lastAnnounce = now; }
       };
       const frames = async () => {
-        const out = await renderFrames(doc, cp, job, (i, n) => update(`Rendering ${Math.min(n, i + 1)} / ${n}`));
+        const out = await renderFrames(doc, cp, job, (done, n) => update(`Rendering ${Math.min(n, done)} / ${n}`));
         if (job.cancel) throw new Error('cancelled');
         cancelB.disabled = true;
         update('Encoding…', true); await new Promise((r) => setTimeout(r, 20));
@@ -7231,15 +7618,23 @@ window.PL = window.PL || {};
       }
     }
     // The one place frames get rendered: the worker renderer when it exists, else the main-thread loop.
+    // onProgress(done, total) is 1-based. A worker that fails before its first frame (e.g. 'worker-unavailable')
+    // falls back to the main-thread loop for the same export, without a message.
     async function renderFrames(doc, cp, job, onProgress) {
       if (PL.Render && PL.Render.available()) {
-        return PL.Render.frames(doc, { onProgress, isCancelled: () => job.cancel });
+        let started = false;
+        try {
+          return await PL.Render.frames(doc, { onProgress: (done, total) => { started = true; onProgress(done, total); }, isCancelled: () => job.cancel });
+        } catch (e) {
+          if (job.cancel || (e && e.message === 'cancelled')) throw new Error('cancelled');
+          if (started) throw e;
+        }
       }
       const out = [];
       for (let i = 0; i < cp.frames; i++) {
         if (job.cancel) throw new Error('cancelled');
         out.push(E.renderFrame(cp, i));
-        onProgress(i, cp.frames);
+        onProgress(i + 1, cp.frames);
         await new Promise((r) => setTimeout(r));
       }
       return out;
@@ -7309,7 +7704,7 @@ window.PL = window.PL || {};
     exportBtns.push(expB, sheetB, nameB);
 
     // ---- size estimate: a few rendered frames, encoded and extrapolated, debounced ----
-    const est = h('span', { class: 'stat export-est' }, 'Estimated size: –');
+    const est = h('span', { class: 'stat export-est', role: 'status', 'aria-live': 'polite' }, 'Estimated size: –');
     let estTimer = 0, estSeq = 0, estSig = '';
     const sigOf = () => JSON.stringify([A.state.anim, g.format, g.colors, g.dither, g.alpha, g.diff, g.localPal, g.webpQuality, A.state.preview.color],
       (k, v) => (k === 'src' && typeof v === 'string' ? v.length : v));
@@ -7319,20 +7714,24 @@ window.PL = window.PL || {};
       const doc = clone(A.state.anim), fmt = g.format;
       if (!doc.layers.some((l) => l.visible)) { estSig = ''; est.textContent = 'Estimated size: –'; return; }
       est.textContent = 'Estimated size: calculating…';
-      await new Promise((r) => setTimeout(r));
+      // wait for an idle moment, so the estimate never competes with typing or the preview
+      await new Promise((r) => (window.requestIdleCallback ? requestIdleCallback(() => r(), { timeout: 2000 }) : setTimeout(r, 50)));
       if (seq !== estSeq) return;
       try {
         const cp = E.compile(doc), n = cp.frames;
+        // sample frames are rendered small (at most 96×24, at most a quarter of the area); the size is scaled back up by area
+        const sc = Math.min(0.5, 96 / cp.W, 24 / cp.H), sw = Math.max(8, Math.round(cp.W * sc)), sh = Math.max(4, Math.round(cp.H * sc));
+        const areaRatio = (cp.W * cp.H) / (sw * sh);
         let idx;
         if (n <= 6) idx = [...Array(n).keys()];
         else if (fmt === 'gif') { const m = Math.max(1, Math.floor(n / 2) - 1); idx = [0, m, m + 1, m + 2, m + 3]; }
         else idx = [...new Set([0, Math.floor(n / 3), Math.floor((2 * n) / 3), n - 1])];
-        const fr = idx.map((i) => E.renderFrame(cp, i));
+        const fr = idx.map((i) => E.renderFrame(cp, i, sw, sh));
         const opts = fmt === 'gif' ? gifEncOpts(doc) : { delayMs: 1000 / doc.fps, quality: g.webpQuality };
         opts.total = n;
         const bytes = await PL.Encode.estimateSize(fr, fmt, opts);
         if (seq !== estSeq) return;
-        est.textContent = 'Estimated size: ~' + PL.fmtBytes(bytes);
+        est.textContent = 'Estimated size: ~' + PL.fmtBytes(bytes * areaRatio);
       } catch (e) {
         if (seq !== estSeq) return;
         estSig = '';
@@ -7347,7 +7746,7 @@ window.PL = window.PL || {};
         const sg = sigOf();
         if (!force && sg === estSig) return;
         estSig = sg; runEstimate();
-      }, 600);
+      }, 900);
     }
     // paint edits end in A.updateOutput(); hook it once so any edit refreshes the estimate
     if (!A.updateOutput || !A.updateOutput.exportHooked) {
@@ -7412,14 +7811,39 @@ window.PL = window.PL || {};
     host.textContent = '';
     if (!r.url) r.url = URL.createObjectURL(r.blob); // one URL per export, revoked when replaced
     const url = r.url;
-    const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: A.state.preview.color, backgroundImage: `url("${url}")`, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: r.shadows || A.state.anim.shadows }) } }, A.state.preview.text);
+    let paused = matchMedia('(prefers-reduced-motion: reduce)').matches; // reduced motion shows the first frame
+    const img = h('img', { alt: r.kind + ' export' });
+    const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: A.state.preview.color, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: r.shadows || A.state.anim.shadows }) } }, A.state.preview.text);
+    // r.still is a PNG of frame 0, drawn once from the export (drawImage uses an animated image's first frame)
+    const apply = () => {
+      const src = paused && r.still ? r.still : paused && !r.stillFailed ? null : url;
+      if (!src) return;
+      img.src = src;
+      if (sevenTv) sevenTv.style.backgroundImage = `url("${src}")`;
+    };
+    if (!r.still && !r.stillFailed) {
+      const probe = new Image();
+      probe.onload = () => {
+        try {
+          const c = h('canvas', { width: probe.naturalWidth || 1, height: probe.naturalHeight || 1 });
+          c.getContext('2d').drawImage(probe, 0, 0);
+          r.still = c.toDataURL('image/png');
+        } catch (e) { r.stillFailed = true; }
+        apply();
+      };
+      probe.onerror = () => { r.stillFailed = true; apply(); };
+      probe.src = url;
+    }
+    const pauseB = iconBtn('pause', 'Pause animation', () => { paused = !paused; sync(); apply(); }, { cls: 'sm' });
+    const sync = () => { pauseB.setAttribute('aria-pressed', String(paused)); pauseB.replaceChildren(icon(paused ? 'play' : 'pause')); };
+    sync(); apply();
     host.append(h('div', { class: 'result' },
-      h('img', { src: url, alt: r.kind + ' export' }),
+      img,
       h('div', { class: 'ctl grow' },
         h('span', { class: 'stat' }, `${r.kind} · ${r.w}×${r.h} · ${r.frames} frames · ${PL.fmtBytes(r.blob.size)}`),
         sevenTv ? h('div', { class: 'stagebox ' + A.state.preview.bg, style: { padding: '10px 12px', border: '1px solid var(--border)' } }, sevenTv) : null,
         sevenTv ? h('span', { class: 'hint' }, 'Shown exactly the way 7TV applies an image paint.') : null,
-        h('div', { class: 'row' }, btn('Download again', () => download(r.blob, r.name), 'ghost small', 'download')))));
+        h('div', { class: 'row' }, pauseB, btn('Download again', () => download(r.blob, r.name), 'ghost small', 'download')))));
   }
 
   Object.assign(A, { animOutput });
@@ -7430,7 +7854,7 @@ window.PL = window.PL || {};
 /* cyex paints: library and presets dialogs. */
 (function (PL) {
   'use strict';
-  const { h, icon, btn, seg, dialog, toast } = PL.UI;
+  const { h, icon, iconBtn, btn, seg, dialog, toast } = PL.UI;
   const E = PL.Engine, Paint = PL.Paint, clone = PL.clone;
   const A = (PL.App = PL.App || {});
 
@@ -7507,7 +7931,7 @@ window.PL = window.PL || {};
     let tab = A.state.mode;
     const host = h('div', { class: 'cards' });
     if (tab === 'anim') tab = 'scenes';
-    const tabs = seg([['static', 'Static gradients'], ['scenes', 'Scenes'], ['anim', 'Animated effects']], tab, (v) => { tab = v; render(); }, 'Preset type');
+    const tabs = seg([['static', 'Static gradients'], ['scenes', 'Scenes'], ['anim', 'Animated effects']], tab, (v) => { tab = v; hideSur(); render(); }, 'Preset type');
     let job = 0;
     const render = () => {
       host.textContent = '';
@@ -7540,37 +7964,48 @@ window.PL = window.PL || {};
       }
     };
     // ---- Surprise me: a random paint for the current tab, previewed before it replaces anything ----
-    const surWrap = h('div', { class: 'surprise', hidden: true, role: 'group', 'aria-label': 'Surprise preview' });
-    let sur = null, stopPreview = () => {};
+    // The card's nodes are built once and reused, so rolling never moves focus and the live region keeps announcing.
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let paused = reduced, player = null, sur = null, lastRoll = 0;
+    const surLive = h('span', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
+    const swatch = h('div', { class: 'sw', 'aria-hidden': 'true', hidden: true });
+    const cv = h('canvas', { width: 256, height: 64, 'aria-hidden': 'true', hidden: true });
+    const sname = h('b', { class: 'sname' }), smeta = h('span');
+    const pauseB = iconBtn('pause', 'Pause preview', () => { paused = !paused; syncPause(); if (player) player.setPaused(paused); }, { cls: 'sm spause' });
+    const syncPause = () => { pauseB.setAttribute('aria-pressed', String(paused)); pauseB.replaceChildren(icon(paused ? 'play' : 'pause')); };
+    syncPause();
+    const useB = btn('Use this', () => use(), 'primary small');
+    const againB = btn('Another', () => roll(), 'secondary small', 'dice');
+    const surWrap = h('div', { class: 'surprise', hidden: true, role: 'group', 'aria-label': 'Surprise preview' },
+      h('div', { class: 'sprev' }, swatch, cv, pauseB),
+      h('div', { class: 'sinfo' }, sname, smeta),
+      h('div', { class: 'sact' }, useB, againB, h('span', { class: 'hint' }, 'Press R for another.')));
     const kindOfTab = () => (tab === 'static' ? 'static' : 'anim');
-    const roll = (kind) => {
+    const stopPreview = () => { if (player) { player.stop(); player = null; } };
+    const hideSur = () => { stopPreview(); sur = null; surWrap.hidden = true; surLive.textContent = ''; };
+    const roll = () => {
       const S = PL.Surprise;
       if (!S) { toast('Surprise me isn’t available.', 'error'); return; }
-      kind = kind || (sur && sur.kind) || kindOfTab();
+      const now = performance.now();
+      if (now - lastRoll < 150) return;
+      lastRoll = now;
+      const kind = kindOfTab();
       let item;
       try { item = kind === 'static' ? S.makeStatic() : S.make(); }
       catch (e) { toast('Couldn’t make a paint just now. Try again.', 'error'); return; }
       stopPreview();
       sur = { kind, item };
-      const name = h('b', { class: 'sname' }, item.name);
-      let prev, meta;
+      sname.textContent = item.name;
+      swatch.hidden = kind !== 'static'; cv.hidden = kind === 'static'; pauseB.hidden = kind === 'static';
       if (kind === 'static') {
-        prev = h('div', { class: 'sw', style: { backgroundImage: Paint.gradientCss(item) }, 'aria-hidden': 'true' });
-        meta = `${item.function === 'RADIAL_GRADIENT' ? 'Radial' : 'Linear'} · ${item.stops.length} stops${item.repeat ? ' · repeating' : ''}${item.shadows.length ? ' · shadow' : ''}`;
+        swatch.style.backgroundImage = Paint.gradientCss(item);
+        smeta.textContent = `${item.function === 'RADIAL_GRADIENT' ? 'Radial' : 'Linear'} · ${item.stops.length} stops${item.repeat ? ' · repeating' : ''}${item.shadows.length ? ' · shadow' : ''}`;
       } else {
-        prev = h('canvas', { width: 256, height: 64, 'aria-hidden': 'true' });
-        meta = item.layers.map((l) => PL.LAYERS[l.type].name).concat(item.effects.map((e) => PL.EFFECTS[e.type].name)).join(', ');
-        stopPreview = playPreview(prev, item);
+        smeta.textContent = item.layers.map((l) => PL.LAYERS[l.type].name).concat(item.effects.map((e) => PL.EFFECTS[e.type].name)).join(', ');
+        player = playPreview(cv, item, paused);
       }
-      surWrap.textContent = '';
-      surWrap.append(
-        h('div', { class: 'sprev' }, prev),
-        h('div', { class: 'sinfo', 'aria-live': 'polite' }, name, h('span', null, meta)),
-        h('div', { class: 'sact' },
-          btn('Use this', use, 'primary small'),
-          btn('Another', () => roll(), 'secondary small', 'dice'),
-          h('span', { class: 'hint' }, 'Press R for another.')));
       surWrap.hidden = false;
+      surLive.textContent = `${item.name}, ${kind === 'static' ? 'static gradient' : 'animated paint'}`;
     };
     const use = () => {
       if (!sur) return;
@@ -7579,35 +8014,59 @@ window.PL = window.PL || {};
       A.state.sel = null;
       stopPreview(); d.close(); A.renderAll(); A.commit();
     };
-    const surBtn = btn('Surprise me', () => roll(kindOfTab()), 'secondary small', 'dice');
+    const surBtn = btn('Surprise me', () => roll(), 'secondary small', 'dice');
     surBtn.dataset.tip = 'Make a random paint for this tab'; surBtn.dataset.hint = 'Press R for another';
-    const d = dialog('Presets', [h('div', { class: 'row' }, tabs, surBtn, h('span', { class: 'hint' }, 'Picking a preset replaces the current paint of that type. Undo brings it back.')), surWrap, host], { wide: true, onClose: () => stopPreview() });
+    const d = dialog('Presets', [h('div', { class: 'row' }, tabs, surBtn, h('span', { class: 'hint' }, 'Picking a preset replaces the current paint of that type. Undo brings it back.')), surLive, surWrap, host], { wide: true, onClose: () => stopPreview() });
     if (!d.box.dataset.surprise) d.box.addEventListener('keydown', (e) => { // a second open of the dialog reuses the first, so bind once
       if (e.key.toLowerCase() !== 'r' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
-      if (e.target.closest && e.target.closest('input, textarea, [contenteditable]')) return;
-      e.preventDefault(); roll();
+      if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+      e.preventDefault();
+      if (!e.repeat) roll();
     });
     d.box.dataset.surprise = "1";
     render();
   }
 
   // Plays a document on a canvas, a frame at a time (every second frame, cached after the first pass).
-  // A still frame under reduced motion. Stops by itself once the canvas leaves the page. Returns a stop function.
-  function playPreview(cv, doc) {
-    let timer = 0;
-    const stop = () => clearInterval(timer);
+  // One requestAnimationFrame loop with a time gate; it idles while paused, while the tab is hidden and while the
+  // canvas is off screen. Starts paused (a still frame) when asked to, e.g. under reduced motion.
+  // Returns { stop, setPaused }.
+  function playPreview(cv, doc, startPaused) {
+    let raf = 0, last = 0, i = 0, n = 1, gap = 100, visible = true, alive = true, paused = !!startPaused, io = null, draw = () => {};
+    const stop = () => {
+      alive = false; cancelAnimationFrame(raf); raf = 0;
+      document.removeEventListener('visibilitychange', kick);
+      if (io) { io.disconnect(); io = null; }
+    };
+    function kick() {
+      if (!alive || raf || paused || document.hidden || !visible) return;
+      last = performance.now();
+      raf = requestAnimationFrame(tick);
+    }
+    function tick(now) {
+      raf = 0;
+      if (!alive) return;
+      if (!cv.isConnected) { stop(); return; }
+      if (paused || document.hidden || !visible) return; // kick() restarts it
+      if (now - last >= gap) {
+        last = now;
+        try { i = (i + 2) % n; draw(i); } catch (e) { stop(); return; }
+      }
+      raf = requestAnimationFrame(tick);
+    }
     try {
-      const d = Object.assign({}, doc, { width: 256, height: 64 }), cp = E.compile(d), n = E.frameCount(d), ctx = cv.getContext('2d'), cache = [];
-      const draw = (k) => { if (!cache[k]) cache[k] = E.renderFrame(cp, k); ctx.putImageData(cache[k], 0, 0); };
+      const d = Object.assign({}, doc, { width: 256, height: 64 }), cp = E.compile(d), ctx = cv.getContext('2d'), cache = [];
+      n = E.frameCount(d); gap = 2000 / d.fps;
+      draw = (k) => { if (!cache[k]) cache[k] = E.renderFrame(cp, k); ctx.putImageData(cache[k], 0, 0); };
       draw(Math.floor(n * 0.3));
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return stop;
-      let i = 0;
-      timer = setInterval(() => {
-        if (!cv.isConnected) { stop(); return; }
-        try { i = (i + 2) % n; draw(i); } catch (e) { stop(); }
-      }, 2000 / d.fps);
+      document.addEventListener('visibilitychange', kick);
+      if (typeof IntersectionObserver === 'function') {
+        io = new IntersectionObserver((es) => { visible = es[es.length - 1].isIntersecting; if (visible) kick(); });
+        io.observe(cv);
+      }
+      kick();
     } catch (e) { stop(); }
-    return stop;
+    return { stop, setPaused: (p) => { paused = !!p; if (paused) { cancelAnimationFrame(raf); raf = 0; } else kick(); } };
   }
 
   Object.assign(A, { openLibrary, openPresets });
@@ -7645,34 +8104,40 @@ window.PL = window.PL || {};
   const LIB_KEY = 'cyexPaints.library';
   const UNAVAILABLE = 'This browser is blocking storage here, so My paints isn’t available. Use Save project or Copy JSON to keep a paint.';
   const FULL = 'Browser storage is full. Delete some saved paints and try again.';
-  const NAME_MAX = 60;
+  const NAME_MAX = 64; // the paint name field allows the same
+  const WARN_BYTES = 3.5 * 1024 * 1024;
 
-  // { ok: false } when storage can't be read; otherwise { ok: true, items }
+  // { ok: false } when storage can't be read; otherwise { ok: true, items, bytes }.
+  // The parsed library is kept in memory and dropped on every write (and when another tab changes it).
+  let libCache = null;
+  try { window.addEventListener('storage', (ev) => { if (!ev.key || ev.key === LIB_KEY) libCache = null; }); } catch (_) {}
   function readLib() {
+    if (libCache) return libCache;
     let raw;
-    try { raw = localStorage.getItem(LIB_KEY); } catch (_) { return { ok: false, items: [] }; }
-    if (raw == null || raw === '') return { ok: true, items: [] };
+    try { raw = localStorage.getItem(LIB_KEY); } catch (_) { return { ok: false, items: [], bytes: 0 }; }
+    if (raw == null || raw === '') return (libCache = { ok: true, items: [], bytes: 0 });
     try {
       const arr = JSON.parse(raw);
       if (!Array.isArray(arr)) throw new Error('not a list');
       const items = arr.filter((e) => e && typeof e.id === 'string' && (e.mode === 'static' || e.mode === 'anim') && e.data && typeof e.data === 'object')
         .map((e) => Object.assign({}, e, { name: String(e.name || '').trim() || 'Untitled paint' }));
-      return { ok: true, items };
+      return (libCache = { ok: true, items, bytes: raw.length });
     } catch (_) {
       // unreadable library: keep a copy before anything can overwrite it
       try { localStorage.setItem(LIB_KEY + '.broken', raw); } catch (__) {}
-      return { ok: true, items: [] };
+      return (libCache = { ok: true, items: [], bytes: 0 });
     }
   }
   function writeLib(items) {
+    libCache = null;
     try { localStorage.setItem(LIB_KEY, JSON.stringify(items)); return true; } catch (_) { return false; }
   }
 
   // =====================================================================================
-  // Thumbnails: 160 x 40 PNG data URL. Static paints use Paint.rasterize; animated ones render one frame.
+  // Thumbnails: 320 x 80 PNG data URL (shown at half size for sharpness). Static paints use Paint.rasterize; animated ones render one frame.
   // =====================================================================================
   function makeThumb() {
-    const W = 160, H = 40;
+    const W = 320, H = 80;
     try {
       let img;
       if (A.state.mode === 'anim') {
@@ -7760,7 +8225,8 @@ window.PL = window.PL || {};
   function duplicateEntry(entry) {
     const lib = readLib();
     if (!lib.ok) { toast(UNAVAILABLE, 'error'); return; }
-    const name = (entry.name + ' copy').slice(0, NAME_MAX);
+    const SUFFIX = ' copy';
+    const name = entry.name.slice(0, NAME_MAX - SUFFIX.length).trimEnd() + SUFFIX; // trim the base so the suffix always fits
     const copy = Object.assign({}, entry, { id: newId(), name, savedAt: new Date().toISOString(), data: Object.assign({}, entry.data, { name }) });
     if (!writeLib([copy].concat(lib.items))) { toast(FULL, 'error'); return; }
     toast(`Duplicated as ${q(name)}.`, 'success');
@@ -7798,16 +8264,28 @@ window.PL = window.PL || {};
     const saveB = h('button', { type: 'button', class: 'btn primary', onclick: () => saveCurrent(false) }, icon('save'), 'Save current paint');
     const newB = h('button', { type: 'button', class: 'btn secondary', onclick: () => saveCurrent(true) }, icon('plus'), 'Save as new');
     const info = h('p', { class: 'hint mp-info' });
+    const warn = h('p', { class: 'hint mp-warn' });
+    warn.hidden = true;
+    const live = h('p', { class: 'sr-only', role: 'status', 'aria-live': 'polite' }); // announces the armed delete
     const grid = h('ul', { class: 'mp-grid', 'aria-label': 'Saved paints' });
     const foot = h('p', { class: 'hint' }, 'Paints are kept in this browser only. Clearing site data removes them, so export what you can’t lose.');
-    const body = h('div', { class: 'mp' }, h('div', { class: 'mp-bar' }, h('div', { class: 'search' }, icon('search'), search), newB, saveB), info, grid, foot);
+    const body = h('div', { class: 'mp' }, h('div', { class: 'mp-bar' }, h('div', { class: 'search' }, icon('search'), search), newB, saveB), info, warn, grid, foot, live);
+
+    // the "Opened from" line, the Save as new button and the size hint; cheap, so a rename can call it without redrawing the list
+    const updateInfo = () => {
+      const lib = readLib();
+      if (!lib.ok) return;
+      const from = originEntry(lib.items);
+      newB.hidden = !from;
+      info.textContent = from ? `Opened from ${q(from.name)}. Save current paint replaces it; Save as new keeps both.` : 'Save current paint adds the open paint as a new entry.';
+      warn.hidden = lib.bytes < WARN_BYTES;
+      if (!warn.hidden) warn.textContent = `Your library is getting large (${PL.fmtBytes(lib.bytes)}). Browsers keep about 5 MB, so remove old paints or save them as files.`;
+    };
 
     const render = () => {
       const lib = readLib();
       if (!lib.ok) { grid.textContent = ''; grid.append(h('li', { class: 'empty' }, icon('folder'), h('span', null, UNAVAILABLE))); return; }
-      const from = originEntry(lib.items);
-      newB.hidden = !from;
-      info.textContent = from ? `Opened from ${q(from.name)}. Save current paint replaces it; Save as new keeps both.` : 'Save current paint adds the open paint as a new entry.';
+      updateInfo();
       const qy = search.value.trim().toLowerCase();
       const items = lib.items.slice().sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)))
         .filter((e) => !qy || (e.name + ' ' + (e.mode === 'anim' ? 'animated' : 'static')).toLowerCase().includes(qy));
@@ -7819,13 +8297,16 @@ window.PL = window.PL || {};
       items.forEach((e) => grid.append(card(e)));
     };
     refresh = render;
-    search.addEventListener('input', render);
+    // search is debounced so typing stays smooth with a big library
+    let searchTimer = 0;
+    search.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(render, 120); });
 
     function card(e) {
       const nameEl = h('b', { class: 'mp-name', title: e.name }, e.name);
       const nameRow = h('div', { class: 'mp-namerow' }, nameEl, h('span', { class: 'mp-chip' }, e.mode === 'anim' ? 'Animated' : 'Static'));
+      // decorative only: the Open button is the one way in, so the picture is not a click target
       const thumb = e.thumb
-        ? h('img', { class: 'mp-thumb', src: e.thumb, alt: '', width: 160, height: 40, decoding: 'async', onclick: () => openEntry(e, dlg.close) })
+        ? h('img', { class: 'mp-thumb', src: e.thumb, alt: '', width: 320, height: 80, loading: 'lazy', decoding: 'async' })
         : h('div', { class: 'mp-thumb', 'aria-hidden': 'true' });
       const date = h('time', { class: 'mp-date', datetime: e.savedAt, title: A.fmtDate(e.savedAt) }, relative(e.savedAt));
 
@@ -7838,7 +8319,18 @@ window.PL = window.PL || {};
         const finish = (commit, refocus) => {
           if (done) return; done = true;
           const value = input.value.trim().slice(0, NAME_MAX);
-          if (commit && value && value !== e.name && renameEntry(e, value)) { e.name = value; relabel(); }
+          if (commit && value && value !== e.name && renameEntry(e, value)) {
+            // the open paint came from this entry: rename it too, so the next Save doesn't put the old name back
+            const linked = e.id === originId && e.mode === A.state.mode && stillSame(e);
+            const was = e.name;
+            e.name = value; relabel();
+            if (linked) {
+              const cur = A.state[A.state.mode];
+              if (cur && cur.name !== value) { cur.name = value; A.renderAll(); A.commit(`Renamed ${short(was)} to ${short(value)}`); }
+              originRef = A.state[A.state.mode];
+            }
+            updateInfo();
+          }
           nameEl.textContent = e.name; nameEl.title = e.name;
           if (input.parentNode === nameRow) nameRow.replaceChild(nameEl, input);
           if (refocus) renB.focus();
@@ -7846,36 +8338,39 @@ window.PL = window.PL || {};
         input.addEventListener('blur', () => finish(true, false));
         input.mpFinish = finish;
       };
-      const openB = h('button', { type: 'button', class: 'btn secondary small', onclick: () => openEntry(e, dlg.close) }, icon('folder'), 'Open');
+      const openB = h('button', { type: 'button', class: 'btn secondary small', 'aria-label': `Open ${e.name}`, onclick: () => openEntry(e, dlg.close) }, icon('folder'), 'Open');
       const renB = iconAction('pencil', `Rename ${e.name}`, startRename, 'mp-rename-btn');
       const dupB = iconAction('copy', `Duplicate ${e.name}`, () => { duplicateEntry(e); render(); (grid.querySelector('.mp-card .btn') || search).focus(); });
-      // arm, then confirm: the first click turns the button into "Click again to delete" for 3 s
-      let armTimer = 0;
+      // arm, then confirm: the first click turns the button into "Press again to delete". It stays armed
+      // until a second click, blur or Escape (no timer), and a polite live region says so.
       const delB = iconAction('trash', `Delete ${e.name}`, () => {
         if (!delB.classList.contains('armed')) {
           delB.classList.add('armed');
-          delB.textContent = 'Click again to delete';
-          delB.setAttribute('aria-label', `Click again to delete ${e.name}`); delB.removeAttribute('data-tip');
-          armTimer = setTimeout(disarm, 3000);
+          delB.textContent = 'Press again to delete';
+          delB.setAttribute('aria-label', `Press again to delete ${e.name}`); delB.removeAttribute('data-tip');
+          live.textContent = '';
+          setTimeout(() => { if (delB.classList.contains('armed')) live.textContent = `Press again to delete ${e.name}`; }, 50);
           return;
         }
-        clearTimeout(armTimer);
+        live.textContent = '';
         deleteEntry(e); render();
         (grid.querySelector('.mp-card .btn') || search).focus();
       }, 'danger mp-del');
       function relabel() {
+        openB.setAttribute('aria-label', `Open ${e.name}`);
         renB.setAttribute('aria-label', `Rename ${e.name}`); renB.setAttribute('data-tip', `Rename ${e.name}`);
         dupB.setAttribute('aria-label', `Duplicate ${e.name}`); dupB.setAttribute('data-tip', `Duplicate ${e.name}`);
         if (!delB.classList.contains('armed')) { delB.setAttribute('aria-label', `Delete ${e.name}`); delB.setAttribute('data-tip', `Delete ${e.name}`); }
       }
       function disarm() {
-        clearTimeout(armTimer);
-        if (!delB.isConnected) return;
+        if (!delB.isConnected || !delB.classList.contains('armed')) return;
         delB.classList.remove('armed');
         delB.textContent = ''; delB.append(ico('trash'));
         delB.setAttribute('aria-label', `Delete ${e.name}`); delB.setAttribute('data-tip', `Delete ${e.name}`);
+        live.textContent = '';
       }
-      delB.addEventListener('blur', () => { if (delB.classList.contains('armed')) disarm(); });
+      delB.mpDisarm = disarm;
+      delB.addEventListener('blur', disarm);
 
       return h('li', { class: 'mp-card' + (e.id === originId ? ' current' : ''), 'data-id': e.id }, thumb, nameRow, date, h('div', { class: 'mp-actions' }, openB, h('span', { class: 'mp-tools' }, renB, dupB, delB)));
     }
@@ -7884,11 +8379,18 @@ window.PL = window.PL || {};
     // run Escape (close) first, so this one sits on window, which captures earlier.
     const keys = (ev) => {
       const t = ev.target;
-      if (!t || !t.classList || !t.classList.contains('mp-rename')) return;
+      if (!t || !t.classList) return;
+      if (ev.key === 'Escape' && t.mpDisarm && t.classList.contains('armed')) { ev.preventDefault(); ev.stopPropagation(); t.mpDisarm(); return; }
+      if (!t.classList.contains('mp-rename')) return;
       if (ev.key === 'Enter' || ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); t.mpFinish && t.mpFinish(ev.key === 'Enter', true); }
     };
     window.addEventListener('keydown', keys, true);
-    const dlg = dialog('My paints', body, { wide: true, onClose: () => { window.removeEventListener('keydown', keys, true); refresh = null; dlgOpen = null; } });
+    // a click elsewhere in the list disarms an armed delete even where buttons don't take focus on click
+    grid.addEventListener('pointerdown', (ev) => {
+      const keep = ev.target.closest && ev.target.closest('.mp-del');
+      grid.querySelectorAll('.mp-del.armed').forEach((b) => { if (b !== keep && b.mpDisarm) b.mpDisarm(); });
+    });
+    const dlg = dialog('My paints', body, { wide: true, onClose: () => { window.removeEventListener('keydown', keys, true); clearTimeout(searchTimer); refresh = null; dlgOpen = null; } });
     dlgOpen = dlg;
     render();
   }
@@ -7930,7 +8432,7 @@ window.PL = window.PL || {};
     };
     const items = steps.map((step, i) => h('button', { type: 'button', class: 'option hist', role: 'option', tabindex: '-1', 'aria-selected': String(step.current), 'aria-label': `${step.label}, ${A.fmtTime(step.time)}${step.current ? ', current' : ''}`, onclick: () => choose(i) },
       h('span', { class: 'hmark' }, step.current ? icon('check') : null),
-      h('span', { class: 'hlabel' }, step.label),
+      h('span', { class: 'hlabel', title: step.label }, step.label),
       h('time', { class: 'htime', title: A.fmtDate(step.time) }, A.fmtTime(step.time))));
     const mark = () => {
       items.forEach((b, i) => b.classList.toggle('kb', i === kb));
@@ -7984,10 +8486,13 @@ window.PL = window.PL || {};
     // only text entry counts as typing; sliders, checkboxes and colour pickers keep the shortcuts
     const typing = e.target.closest && e.target.closest('input:not([type=range]):not([type=checkbox]):not([type=color]):not([type=file]), textarea, [contenteditable]');
     // Ctrl+S saves to My paints; it always blocks the browser's own Save page dialog
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); if (A.saveCurrent) A.saveCurrent(false); return; }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? A.redo() : A.undo(); }
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); A.redo(); }
-    else if (e.key === ' ' && !e.defaultPrevented && A.state.mode === 'anim' && !typing && !e.target.closest('button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); A.togglePlay(); }
+    // while a dialog is open the shortcuts act on nothing behind it
+    const dialogOpen = !!document.querySelector('.backdrop');
+    const key = (e.key || '').toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && key === 's') { e.preventDefault(); if (!dialogOpen && A.saveCurrent) A.saveCurrent(false); return; }
+    if ((e.ctrlKey || e.metaKey) && key === 'z' && !typing) { if (dialogOpen) return; e.preventDefault(); e.shiftKey ? A.redo() : A.undo(); }
+    else if ((e.ctrlKey || e.metaKey) && key === 'y' && !typing) { if (dialogOpen) return; e.preventDefault(); A.redo(); }
+    else if (e.key === ' ' && !e.defaultPrevented && A.state.mode === 'anim' && !typing && !e.target.closest('input, select, textarea, label, [role=slider], [role=checkbox], [role=spinbutton], button, [role="radio"], [role="listbox"], .item, .backdrop')) { e.preventDefault(); A.togglePlay(); }
   });
 
   // =====================================================================================
