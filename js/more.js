@@ -366,5 +366,116 @@
     },
   });
 
+  // =====================================================================================
+  // Flow: a "stream function" psi built from random sine waves (8 per detail level, each level twice
+  // as fine and half as strong). Whole-number x frequencies make it tile across the paint, and each
+  // wave's phase wobbles once per speed cycle, so every loop is seamless. Unlike value noise it has
+  // no grid, and its gradient is exact. The curl (dpsi/dy, -dpsi/dx) is a swirling flow with no
+  // sources or sinks, and the contour lines of psi are exactly its streamlines.
+  // Shared params: sx, sy, oct, flow (churn), speed, seed.
+  // =====================================================================================
+  const FLOW_K = 1; // typical flow speed in "scale" units, used to scale colours and warps
+  const PSI_K = 2; // psi spans about 0,5, so Lines x 2 gives roughly that many streamlines
+  const FL = new Float64Array(3);
+  function flowPrep(p) {
+    const r = PL.rng(p.seed * 7919 + 13), waves = [];
+    for (let o = 0; o < p.oct; o++) {
+      const f = 2 ** o;
+      for (let i = 0; i < 8; i++) {
+        const kx = Math.round((r() * 2 - 1) * p.sx * f), ky = (r() * 2 - 1) * p.sy * f;
+        waves.push({ kx: TAU * kx, ky: TAU * ky, a: 1 / f, ph: TAU * r(), wob: TAU * r(), dir: r() < 0.5 ? -1 : 1 });
+      }
+    }
+    let s = 0; for (const w of waves) s += (w.a * w.a) / 2;
+    const n = 0.1 / Math.sqrt(s); for (const w of waves) w.a *= n; // psi has a spread of 0,1 whatever the detail
+    p._waves = waves; p._ft = null;
+  }
+  function flowAt(u, v, t, p, out) {
+    const W = p._waves;
+    if (p._ft !== t) { p._ft = t; p._ph = W.map((w) => w.ph + p.flow * Math.sin(w.wob + TAU * t * p.speed * w.dir)); }
+    let n = 0, dx = 0, dy = 0;
+    for (let i = 0; i < W.length; i++) {
+      const w = W[i], a = w.kx * u + w.ky * v + p._ph[i], c = w.a * Math.cos(a);
+      n += w.a * Math.sin(a); dx += c * w.kx; dy += c * w.ky;
+    }
+    out[0] = n; out[1] = dx / p.sx; out[2] = dy / p.sy; // psi, then its slope per unit of scale x and y
+    return out;
+  }
+  const flowParams = (sx, sy, oct, churn, seed) => [P.int('sx', 'Scale x', 1, 32, sx), P.int('sy', 'Scale y', 1, 16, sy), P.int('oct', 'Detail', 1, 5, oct), P.range('flow', 'Churn', 0, 3, 0.05, churn), P.speed(1), P.seed(seed)];
+
+  layer('flownoise', {
+    name: 'Flow noise', cat: 'Noise and fluids', desc: 'A swirling flow map: colour shows which way the noise flows, or how fast. Flow map gives the red and green texture game engines use.',
+    params: [P.pal('rainbowLoop', true), P.select('mode', 'Show', [['angle', 'Direction'], ['speed', 'Speed'], ['map', 'Flow map (red, green)']], 'angle'), P.range('contrast', 'Contrast', 0.2, 4, 0.05, 1), ...flowParams(6, 2, 3, 0.8, 91)],
+    prepare: flowPrep,
+    sample(u, v, t, p, o, c) {
+      const f = flowAt(u, v, t, p, FL);
+      const vx = f[2], vy = (-f[1] * p.sx) / (c.A * p.sy); // flow on screen, in units of the paint height
+      const m = Math.hypot(vx, vy), k = clamp((m / FLOW_K) * p.contrast);
+      if (p.mode === 'map') {
+        const s = (p.contrast * 0.5) / FLOW_K;
+        o[0] = clamp(0.5 + vx * s); o[1] = clamp(0.5 + vy * s); o[2] = 0; o[3] = 1;
+        return o;
+      }
+      if (p.mode === 'speed') return lutAt(p._stops, k, o);
+      lutAt(p._stops, fract(Math.atan2(vy, vx) / TAU + 0.5), o);
+      const b = 0.35 + 0.65 * k; // slow areas sink into shadow so the swirls read
+      o[0] *= b; o[1] *= b; o[2] *= b;
+      return o;
+    },
+  });
+
+  layer('flowfield', {
+    name: 'Flow field', cat: 'Patterns', desc: 'Streamlines that follow a swirling flow, like a wind map or vector-field chart. Dashes can travel along them.',
+    params: [P.pal('aurora'), P.color('bg', 'Background', '#0b1020'), P.range('bgAlpha', 'Background opacity', 0, 1, 0.01, 1), P.range('density', 'Lines', 2, 40, 1, 14), P.range('width', 'Line width (px)', 0.5, 6, 0.1, 1.2), P.range('glow', 'Glow', 0, 1, 0.01, 0.3),
+      P.int('dashes', 'Dashes', 0, 16, 6, '0 draws solid lines'), P.speed(1, 'dash', 'Dash travel'), ...flowParams(4, 1, 2, 0.4, 97)],
+    prepare(p) { colorPrep(['bg'])(p); flowPrep(p); },
+    sample(u, v, t, p, o, c) {
+      const f = flowAt(u, v, t, p, FL);
+      const gx = (f[1] * p.sx) / c.W, gy = (f[2] * p.sy) / c.H; // dpsi per pixel
+      const L = p.density * PSI_K, s = f[0] * L, per = Math.hypot(gx, gy) * L + 1e-6; // lines crossed per pixel
+      const d = Math.abs(fract(s + 0.5) - 0.5) / per; // pixels to the nearest streamline
+      let k = 1 - smoothstep(p.width * 0.5 - 0.5, p.width * 0.5 + 0.5, d);
+      if (p.dashes) {
+        // dashes ride on a faint line, like particles on a wind map. Distance along the line is the
+        // pixel position projected on the local flow direction.
+        const m = Math.hypot(gx, gy) + 1e-12, along = (u * c.W * gy - v * c.H * gx) / m;
+        const g = fract((along * p.dashes) / c.W - t * p.dash);
+        k *= 0.25 + 0.75 * smoothstep(0, 0.06, g) * (1 - smoothstep(0.5, 0.56, g));
+      }
+      if (p.glow) k = Math.max(k, p.glow * 0.6 * Math.exp(-d / (p.width * 1.5 + 1)));
+      lutAt(p._stops, fract(Math.floor(s) * 0.618034), o); // each streamline keeps its own colour
+      const ba = p.bgAlpha * (1 - k), a = k + ba;
+      if (a <= 0) { o[3] = 0; return o; }
+      for (let q = 0; q < 3; q++) o[q] = (o[q] * k + p._bg[q] * ba) / a;
+      o[3] = a;
+      return o;
+    },
+  });
+
+  effect('flowwarp', {
+    name: 'Flow warp', cat: 'Distortion', desc: 'Pushes the image along a swirling noise flow, like ink in water. More streaks smear it along the flow.',
+    params: [P.range('amp', 'Strength (px)', 0, 24, 0.5, 5), P.int('steps', 'Streaks', 1, 8, 1, '1 warps; more smear the image along the flow'), ...flowParams(4, 1, 2, 0.6, 103)],
+    prepare: flowPrep,
+    run(buf, W, H, t, p) {
+      if (!p.amp) return buf;
+      const out = new Float32Array(buf.length), s = new Float64Array(4), n = p.steps;
+      for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i += 4) {
+        const f = flowAt((x + 0.5) / W, (y + 0.5) / H, t, p, FL);
+        let dx = f[2] / FLOW_K, dy = (-f[1] / FLOW_K) * (p.sx / p.sy) * (H / W); // flow on screen
+        const m = Math.hypot(dx, dy); if (m > 1.5) { dx *= 1.5 / m; dy *= 1.5 / m; }
+        dx *= p.amp; dy *= p.amp;
+        let r = 0, g = 0, b = 0, a = 0;
+        for (let j = 0; j < n; j++) {
+          const k = n === 1 ? 1 : j / (n - 1);
+          bilinear(buf, W, H, x + 0.5 + dx * k, y + 0.5 + dy * k, s);
+          r += s[0] * s[3]; g += s[1] * s[3]; b += s[2] * s[3]; a += s[3];
+        }
+        if (a > 1e-9) { out[i] = r / a; out[i + 1] = g / a; out[i + 2] = b / a; }
+        out[i + 3] = a / n;
+      }
+      return out;
+    },
+  });
+
   PL.LAYER_CATS = ['Scene elements', 'Gradients', 'Patterns', 'Noise and fluids', 'Particles and light', 'Materials'];
 })(window.PL);

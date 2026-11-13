@@ -128,7 +128,6 @@
   function renderEditor() {
     const root = $('#editor');
     const y = scrollY;
-    const sy = $('.settings-col')?.scrollTop || 0;
     const fd = focusDescriptor();
     root.textContent = '';
     root.className = 'editor';
@@ -136,7 +135,7 @@
     PL.UI.closePop();
     if (A.state.mode === 'static') A.renderStaticEditor(root); else A.renderAnimEditor(root);
     scrollTo(0, y);
-    const sc = $('.settings-col'); if (sc) sc.scrollTop = sy;
+    A.syncSticky();
     restoreFocus(fd);
   }
   function renderStage() {

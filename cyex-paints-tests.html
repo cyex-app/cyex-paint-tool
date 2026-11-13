@@ -2523,6 +2523,117 @@ window.PL = window.PL || {};
     },
   });
 
+  // =====================================================================================
+  // Flow: a "stream function" psi built from random sine waves (8 per detail level, each level twice
+  // as fine and half as strong). Whole-number x frequencies make it tile across the paint, and each
+  // wave's phase wobbles once per speed cycle, so every loop is seamless. Unlike value noise it has
+  // no grid, and its gradient is exact. The curl (dpsi/dy, -dpsi/dx) is a swirling flow with no
+  // sources or sinks, and the contour lines of psi are exactly its streamlines.
+  // Shared params: sx, sy, oct, flow (churn), speed, seed.
+  // =====================================================================================
+  const FLOW_K = 1; // typical flow speed in "scale" units, used to scale colours and warps
+  const PSI_K = 2; // psi spans about 0,5, so Lines x 2 gives roughly that many streamlines
+  const FL = new Float64Array(3);
+  function flowPrep(p) {
+    const r = PL.rng(p.seed * 7919 + 13), waves = [];
+    for (let o = 0; o < p.oct; o++) {
+      const f = 2 ** o;
+      for (let i = 0; i < 8; i++) {
+        const kx = Math.round((r() * 2 - 1) * p.sx * f), ky = (r() * 2 - 1) * p.sy * f;
+        waves.push({ kx: TAU * kx, ky: TAU * ky, a: 1 / f, ph: TAU * r(), wob: TAU * r(), dir: r() < 0.5 ? -1 : 1 });
+      }
+    }
+    let s = 0; for (const w of waves) s += (w.a * w.a) / 2;
+    const n = 0.1 / Math.sqrt(s); for (const w of waves) w.a *= n; // psi has a spread of 0,1 whatever the detail
+    p._waves = waves; p._ft = null;
+  }
+  function flowAt(u, v, t, p, out) {
+    const W = p._waves;
+    if (p._ft !== t) { p._ft = t; p._ph = W.map((w) => w.ph + p.flow * Math.sin(w.wob + TAU * t * p.speed * w.dir)); }
+    let n = 0, dx = 0, dy = 0;
+    for (let i = 0; i < W.length; i++) {
+      const w = W[i], a = w.kx * u + w.ky * v + p._ph[i], c = w.a * Math.cos(a);
+      n += w.a * Math.sin(a); dx += c * w.kx; dy += c * w.ky;
+    }
+    out[0] = n; out[1] = dx / p.sx; out[2] = dy / p.sy; // psi, then its slope per unit of scale x and y
+    return out;
+  }
+  const flowParams = (sx, sy, oct, churn, seed) => [P.int('sx', 'Scale x', 1, 32, sx), P.int('sy', 'Scale y', 1, 16, sy), P.int('oct', 'Detail', 1, 5, oct), P.range('flow', 'Churn', 0, 3, 0.05, churn), P.speed(1), P.seed(seed)];
+
+  layer('flownoise', {
+    name: 'Flow noise', cat: 'Noise and fluids', desc: 'A swirling flow map: colour shows which way the noise flows, or how fast. Flow map gives the red and green texture game engines use.',
+    params: [P.pal('rainbowLoop', true), P.select('mode', 'Show', [['angle', 'Direction'], ['speed', 'Speed'], ['map', 'Flow map (red, green)']], 'angle'), P.range('contrast', 'Contrast', 0.2, 4, 0.05, 1), ...flowParams(6, 2, 3, 0.8, 91)],
+    prepare: flowPrep,
+    sample(u, v, t, p, o, c) {
+      const f = flowAt(u, v, t, p, FL);
+      const vx = f[2], vy = (-f[1] * p.sx) / (c.A * p.sy); // flow on screen, in units of the paint height
+      const m = Math.hypot(vx, vy), k = clamp((m / FLOW_K) * p.contrast);
+      if (p.mode === 'map') {
+        const s = (p.contrast * 0.5) / FLOW_K;
+        o[0] = clamp(0.5 + vx * s); o[1] = clamp(0.5 + vy * s); o[2] = 0; o[3] = 1;
+        return o;
+      }
+      if (p.mode === 'speed') return lutAt(p._stops, k, o);
+      lutAt(p._stops, fract(Math.atan2(vy, vx) / TAU + 0.5), o);
+      const b = 0.35 + 0.65 * k; // slow areas sink into shadow so the swirls read
+      o[0] *= b; o[1] *= b; o[2] *= b;
+      return o;
+    },
+  });
+
+  layer('flowfield', {
+    name: 'Flow field', cat: 'Patterns', desc: 'Streamlines that follow a swirling flow, like a wind map or vector-field chart. Dashes can travel along them.',
+    params: [P.pal('aurora'), P.color('bg', 'Background', '#0b1020'), P.range('bgAlpha', 'Background opacity', 0, 1, 0.01, 1), P.range('density', 'Lines', 2, 40, 1, 14), P.range('width', 'Line width (px)', 0.5, 6, 0.1, 1.2), P.range('glow', 'Glow', 0, 1, 0.01, 0.3),
+      P.int('dashes', 'Dashes', 0, 16, 6, '0 draws solid lines'), P.speed(1, 'dash', 'Dash travel'), ...flowParams(4, 1, 2, 0.4, 97)],
+    prepare(p) { colorPrep(['bg'])(p); flowPrep(p); },
+    sample(u, v, t, p, o, c) {
+      const f = flowAt(u, v, t, p, FL);
+      const gx = (f[1] * p.sx) / c.W, gy = (f[2] * p.sy) / c.H; // dpsi per pixel
+      const L = p.density * PSI_K, s = f[0] * L, per = Math.hypot(gx, gy) * L + 1e-6; // lines crossed per pixel
+      const d = Math.abs(fract(s + 0.5) - 0.5) / per; // pixels to the nearest streamline
+      let k = 1 - smoothstep(p.width * 0.5 - 0.5, p.width * 0.5 + 0.5, d);
+      if (p.dashes) {
+        // dashes ride on a faint line, like particles on a wind map. Distance along the line is the
+        // pixel position projected on the local flow direction.
+        const m = Math.hypot(gx, gy) + 1e-12, along = (u * c.W * gy - v * c.H * gx) / m;
+        const g = fract((along * p.dashes) / c.W - t * p.dash);
+        k *= 0.25 + 0.75 * smoothstep(0, 0.06, g) * (1 - smoothstep(0.5, 0.56, g));
+      }
+      if (p.glow) k = Math.max(k, p.glow * 0.6 * Math.exp(-d / (p.width * 1.5 + 1)));
+      lutAt(p._stops, fract(Math.floor(s) * 0.618034), o); // each streamline keeps its own colour
+      const ba = p.bgAlpha * (1 - k), a = k + ba;
+      if (a <= 0) { o[3] = 0; return o; }
+      for (let q = 0; q < 3; q++) o[q] = (o[q] * k + p._bg[q] * ba) / a;
+      o[3] = a;
+      return o;
+    },
+  });
+
+  effect('flowwarp', {
+    name: 'Flow warp', cat: 'Distortion', desc: 'Pushes the image along a swirling noise flow, like ink in water. More streaks smear it along the flow.',
+    params: [P.range('amp', 'Strength (px)', 0, 24, 0.5, 5), P.int('steps', 'Streaks', 1, 8, 1, '1 warps; more smear the image along the flow'), ...flowParams(4, 1, 2, 0.6, 103)],
+    prepare: flowPrep,
+    run(buf, W, H, t, p) {
+      if (!p.amp) return buf;
+      const out = new Float32Array(buf.length), s = new Float64Array(4), n = p.steps;
+      for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i += 4) {
+        const f = flowAt((x + 0.5) / W, (y + 0.5) / H, t, p, FL);
+        let dx = f[2] / FLOW_K, dy = (-f[1] / FLOW_K) * (p.sx / p.sy) * (H / W); // flow on screen
+        const m = Math.hypot(dx, dy); if (m > 1.5) { dx *= 1.5 / m; dy *= 1.5 / m; }
+        dx *= p.amp; dy *= p.amp;
+        let r = 0, g = 0, b = 0, a = 0;
+        for (let j = 0; j < n; j++) {
+          const k = n === 1 ? 1 : j / (n - 1);
+          bilinear(buf, W, H, x + 0.5 + dx * k, y + 0.5 + dy * k, s);
+          r += s[0] * s[3]; g += s[1] * s[3]; b += s[2] * s[3]; a += s[3];
+        }
+        if (a > 1e-9) { out[i] = r / a; out[i + 1] = g / a; out[i + 2] = b / a; }
+        out[i + 3] = a / n;
+      }
+      return out;
+    },
+  });
+
   PL.LAYER_CATS = ['Scene elements', 'Gradients', 'Patterns', 'Noise and fluids', 'Particles and light', 'Materials'];
 })(window.PL);
 
@@ -3907,7 +4018,7 @@ window.PL = window.PL || {};
 </script>
   <script data-src="js/tests-baseline.js">
 /* Render fingerprints for js/tests.js. Regenerate from the test page after an intentional visual change. */
-window.PL_BASELINE = {"L:linear":"763ac6c5/6daa4385","L:radial":"b453204d/b453204d","L:conic":"a8094cf/4ca99b1f","L:diamond":"93b9dda5/1b8c7db5","L:solid":"3ce237c5/3ce237c5","L:rainbow":"38adb145/a5a5f305","L:stripes":"d3bbbcc2/13e140e5","L:checker":"fa97efc5/e5e461c5","L:dots":"7b07b985/91e7a9e5","L:waves":"6d301395/ab7b2ae5","L:zigzag":"dd1bc5c5/71850d45","L:grid":"bca5b85/5b963fc5","L:carbon":"552e54d9/a2530ab5","L:clouds":"e08241ce/bd301579","L:smoke":"9fab6100/d0b1fc84","L:plasma":"eb67851e/80f3a6ab","L:marble":"5cd92bf5/aa14075f","L:aurora":"c36fdf01/12bb30fa","L:fire":"a0575be8/47188f27","L:lava":"bcea0978/87332624","L:voronoi":"e54eca00/1616e32a","L:caustics":"64c67b74/f25c1532","L:sparkles":"54f16d8a/ed859b26","L:stars":"76bafa44/db83d115","L:particles":"b5ead91c/804a04c9","L:shine":"24fda591/6f1009b","L:rays":"c01a65cd/e641ec97","L:glints":"2204fe65/9fc2a4d","L:matrix":"4ef33d4b/a409faad","L:chrome":"c628ddc7/2e663bfc","L:brushed":"e01786cf/6e31a26a","L:holo":"cde6e060/e5839c6d","L:opal":"242f42fe/96dd162d","L:wood":"2e7c2ba3/2e7c2ba3","L:image":"2b7edc5/2b7edc5","L:mesh":"745f3aff/3dad93bb","L:silk":"efa319a4/c7070814","L:spiral":"4de2959a/b65d2935","L:tiedye":"4263eeb0/608873c2","L:hexgrid":"1ac5f50/7c5c2238","L:scales":"bae0286d/a4ead9c5","L:truchet":"e9b98f36/e9b98f36","L:plaid":"c5e74ebd/4f744415","L:liquid":"7b01316/3729887a","L:topo":"168f23b1/ccfd5ff4","L:galaxyArms":"76d042e4/fd51d2ce","L:shape":"d4c8c4e3/62389b4a","L:glyph":"1cfcf5d3/22f8b30c","L:sprite":"2b7edc5/2b7edc5","L:ribbon":"8091286c/44ba4c36","L:mountains":"14d41b86/2797c121","L:skyline":"6a7c693/af14cf73","L:lightning":"6f514b1d/5776d2af","E:hue":"916ceea8/a4cae58e","E:adjust":"75a90083/d9ab0212","E:gradientMap":"442d5d66/cdb27f3","E:duotone":"de6bc0e7/ecbe35bc","E:posterize":"ab9f355/dc0941a","E:invert":"8c61424f/5023af56","E:pulse":"8ebddf49/4cc4d690","E:cylinder":"e8616c3a/4277acb4","E:bevel":"3a8c7587/e6d662f7","E:gloss":"dbcff43e/2a570432","E:vignette":"50a6d2b5/962ddbf1","E:edgeFade":"2f95533b/539e3e52","E:glow":"e1091409/5cb0eb46","E:wave":"551a5c74/837541dc","E:swirl":"cee55d84/5cbae6fa","E:mirror":"53d67af1/4eef61a9","E:pixelate":"57a685c5/ee9e7705","E:blur":"e052a5be/6c89c721","E:chroma":"8fb7129f/c5910fe2","E:glitch":"62ebfa37/d9ab0212","E:scanlines":"23e78765/4a71cb57","E:grain":"c5b26290/126db9aa","E:halftone":"23d7749e/b3de2c1","E:ripple":"6f6fbc0c/5fbdf33f","E:bulge":"fcc168ae/8c59411d","E:haze":"bac60a64/5d2266bb","E:zoomBlur":"8f6a4525/8fd164d","E:motionBlur":"fdf2078b/74cd555f","E:edgeGlow":"980d58c/58c5af2","E:vhs":"f795eedd/7250435e","E:dither":"4fd533fd/3d9b7475","E:vintage":"aa33c032/1f02448d","E:threshold":"6127bf42/98c9d204","E:sharpen":"a3685d00/e8bd1a1d","E:lightLeak":"cf09639a/11a11c58","E:colorBalance":"bc415cd9/95a6173e","E:shimmer":"183c0cc3/bc74bfb8","E:outlineFx":"2d7edbb5/33d7b586","P:0:Night Sky":"d64864ac","P:1:Synthwave Sun":"ab86e1bb","P:2:Cherry Blossom":"abffa3af","P:3:Floating Hearts":"88bf4cac","P:4:Snow Day":"ee1daabd","P:5:City Lights":"eedfb9b9","P:6:Ocean Sunset":"18fd5381","P:7:Outer Space":"8708bff0","P:8:Bokeh Lights":"dda6f429","P:9:Thunderstorm":"2bfd363f","P:10:Neon Ribbons":"abd7ed8a","P:11:Mesh Gradient":"50da4150","P:12:Silk":"d4c02c07","P:13:Hypnotic":"ead0948d","P:14:Tie-dye":"56d85e8d","P:15:Royal":"22c47ed3","P:16:Music":"1c07e5e9","P:17:Liquid Gold":"b7930674","P:18:Icy Lake Shimmer":"2c9f48eb","P:19:Northern Lights":"1197a553","P:20:Hellfire":"86418166","P:21:Holo Foil":"fceac122","P:22:Galaxy":"b027de64","P:23:Polished Chrome":"c9b6d206","P:24:Rainbow Road":"fcac4b0f","P:25:Toxic Waste":"f5ae98ad","P:26:Synthwave":"1bebe1f5","P:27:Digital Rain":"49f46090","P:28:Candy Cane":"c13113bc","P:29:Lava Lamp":"5ec23545","P:30:Deep Ocean":"c4bb5f73","P:31:Glitch Core":"ee62cce5","P:32:Opal":"2aad78cf","P:33:Frozen Crystal":"4d86db0d","P:34:Marble":"ecadab34","P:35:Sakura Snow":"52ba624b","P:36:Electric":"b0f65a7","P:37:Pastel Dream":"175c1bbc","P:38:Carbon":"90effb22","P:39:Disco":"7cca9985","P:40:Sunburst":"d2ac394e"};
+window.PL_BASELINE = {"L:linear":"763ac6c5/6daa4385","L:radial":"b453204d/b453204d","L:conic":"a8094cf/4ca99b1f","L:diamond":"93b9dda5/1b8c7db5","L:solid":"3ce237c5/3ce237c5","L:rainbow":"38adb145/a5a5f305","L:stripes":"d3bbbcc2/13e140e5","L:checker":"fa97efc5/e5e461c5","L:dots":"7b07b985/91e7a9e5","L:waves":"6d301395/ab7b2ae5","L:zigzag":"dd1bc5c5/71850d45","L:grid":"bca5b85/5b963fc5","L:carbon":"552e54d9/a2530ab5","L:clouds":"e08241ce/bd301579","L:smoke":"9fab6100/d0b1fc84","L:plasma":"eb67851e/80f3a6ab","L:marble":"5cd92bf5/aa14075f","L:aurora":"c36fdf01/12bb30fa","L:fire":"a0575be8/47188f27","L:lava":"bcea0978/87332624","L:voronoi":"e54eca00/1616e32a","L:caustics":"64c67b74/f25c1532","L:sparkles":"54f16d8a/ed859b26","L:stars":"76bafa44/db83d115","L:particles":"b5ead91c/804a04c9","L:shine":"24fda591/6f1009b","L:rays":"c01a65cd/e641ec97","L:glints":"2204fe65/9fc2a4d","L:matrix":"4ef33d4b/a409faad","L:chrome":"c628ddc7/2e663bfc","L:brushed":"e01786cf/6e31a26a","L:holo":"cde6e060/e5839c6d","L:opal":"242f42fe/96dd162d","L:wood":"2e7c2ba3/2e7c2ba3","L:image":"2b7edc5/2b7edc5","L:mesh":"745f3aff/3dad93bb","L:silk":"efa319a4/c7070814","L:spiral":"4de2959a/b65d2935","L:tiedye":"4263eeb0/608873c2","L:hexgrid":"1ac5f50/7c5c2238","L:scales":"bae0286d/a4ead9c5","L:truchet":"e9b98f36/e9b98f36","L:plaid":"c5e74ebd/4f744415","L:liquid":"7b01316/3729887a","L:topo":"168f23b1/ccfd5ff4","L:galaxyArms":"76d042e4/fd51d2ce","L:shape":"d4c8c4e3/62389b4a","L:glyph":"1cfcf5d3/22f8b30c","L:sprite":"2b7edc5/2b7edc5","L:ribbon":"8091286c/44ba4c36","L:mountains":"14d41b86/2797c121","L:skyline":"6a7c693/af14cf73","L:lightning":"6f514b1d/5776d2af","E:hue":"916ceea8/a4cae58e","E:adjust":"75a90083/d9ab0212","E:gradientMap":"442d5d66/cdb27f3","E:duotone":"de6bc0e7/ecbe35bc","E:posterize":"ab9f355/dc0941a","E:invert":"8c61424f/5023af56","E:pulse":"8ebddf49/4cc4d690","E:cylinder":"e8616c3a/4277acb4","E:bevel":"3a8c7587/e6d662f7","E:gloss":"dbcff43e/2a570432","E:vignette":"50a6d2b5/962ddbf1","E:edgeFade":"2f95533b/539e3e52","E:glow":"e1091409/5cb0eb46","E:wave":"551a5c74/837541dc","E:swirl":"cee55d84/5cbae6fa","E:mirror":"53d67af1/4eef61a9","E:pixelate":"57a685c5/ee9e7705","E:blur":"e052a5be/6c89c721","E:chroma":"8fb7129f/c5910fe2","E:glitch":"62ebfa37/d9ab0212","E:scanlines":"23e78765/4a71cb57","E:grain":"c5b26290/126db9aa","E:halftone":"23d7749e/b3de2c1","E:ripple":"6f6fbc0c/5fbdf33f","E:bulge":"fcc168ae/8c59411d","E:haze":"bac60a64/5d2266bb","E:zoomBlur":"8f6a4525/8fd164d","E:motionBlur":"fdf2078b/74cd555f","E:edgeGlow":"980d58c/58c5af2","E:vhs":"f795eedd/7250435e","E:dither":"4fd533fd/3d9b7475","E:vintage":"aa33c032/1f02448d","E:threshold":"6127bf42/98c9d204","E:sharpen":"a3685d00/e8bd1a1d","E:lightLeak":"cf09639a/11a11c58","E:colorBalance":"bc415cd9/95a6173e","E:shimmer":"183c0cc3/bc74bfb8","E:outlineFx":"2d7edbb5/33d7b586","P:0:Night Sky":"d64864ac","P:1:Synthwave Sun":"ab86e1bb","P:2:Cherry Blossom":"abffa3af","P:3:Floating Hearts":"88bf4cac","P:4:Snow Day":"ee1daabd","P:5:City Lights":"eedfb9b9","P:6:Ocean Sunset":"18fd5381","P:7:Outer Space":"8708bff0","P:8:Bokeh Lights":"dda6f429","P:9:Thunderstorm":"2bfd363f","P:10:Neon Ribbons":"abd7ed8a","P:11:Mesh Gradient":"50da4150","P:12:Silk":"d4c02c07","P:13:Hypnotic":"ead0948d","P:14:Tie-dye":"56d85e8d","P:15:Royal":"22c47ed3","P:16:Music":"1c07e5e9","P:17:Liquid Gold":"b7930674","P:18:Icy Lake Shimmer":"2c9f48eb","P:19:Northern Lights":"1197a553","P:20:Hellfire":"86418166","P:21:Holo Foil":"fceac122","P:22:Galaxy":"b027de64","P:23:Polished Chrome":"c9b6d206","P:24:Rainbow Road":"fcac4b0f","P:25:Toxic Waste":"f5ae98ad","P:26:Synthwave":"1bebe1f5","P:27:Digital Rain":"49f46090","P:28:Candy Cane":"c13113bc","P:29:Lava Lamp":"5ec23545","P:30:Deep Ocean":"c4bb5f73","P:31:Glitch Core":"ee62cce5","P:32:Opal":"2aad78cf","P:33:Frozen Crystal":"4d86db0d","P:34:Marble":"ecadab34","P:35:Sakura Snow":"52ba624b","P:36:Electric":"b0f65a7","P:37:Pastel Dream":"175c1bbc","P:38:Carbon":"90effb22","P:39:Disco":"7cca9985","P:40:Sunburst":"d2ac394e","L:flownoise":"2613b8e9/75298fcf","L:flowfield":"ff5d2466/3f380f91","E:flowwarp":"c5e75215/5d85cb07"};
 
 </script>
   <script data-src="js/tests.js">

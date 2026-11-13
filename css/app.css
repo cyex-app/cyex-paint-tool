@@ -20,10 +20,12 @@ h1, h2, h3 { margin: 0; letter-spacing: 0; }
 .layout { display: grid; grid-template-columns: minmax(340px, 520px) minmax(0, 1fr); gap: 20px; align-items: start; padding-top: 20px; padding-bottom: 60px; }
 .editor, .stage { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .editor:focus { outline: none; }
-.stage { position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; scrollbar-gutter: stable; padding-right: 2px; }
+.editor { align-self: stretch; } /* full height, so the sticky settings column inside it stays put to the end of the page */
+/* sticky without scrollbars of its own; js/app/scroll.js sets top so a tall column still scrolls with the page */
+.stage { position: sticky; top: 76px; }
 @media (max-width: 1000px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
-  .stage { position: static; max-height: none; overflow: visible; order: -1; }
+  .stage { position: static; order: -1; }
 }
 
 /* ---------- panel ---------- */
@@ -232,11 +234,12 @@ textarea.code:focus-visible { border-color: var(--focus-ring); box-shadow: 0 0 0
 .layout.anim { grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr); }
 .editor.anim { display: grid; grid-template-columns: minmax(280px, 330px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .editor .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.settings-col { position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; scrollbar-gutter: stable; }
+.settings-col, .lists-col { position: sticky; top: 76px; }
 @media (max-width: 1360px) {
   .layout.anim { grid-template-columns: minmax(0, 1fr) minmax(340px, 0.9fr); }
   .editor.anim { grid-template-columns: minmax(0, 1fr); }
-  .settings-col { position: static; max-height: none; overflow: visible; order: -1; }
+  .settings-col { position: static; order: -1; }
+  .lists-col { position: static; }
 }
 @media (max-width: 1000px) { .layout.anim { grid-template-columns: minmax(0, 1fr); } }
 
@@ -251,8 +254,17 @@ textarea.code:focus-visible { border-color: var(--focus-ring); box-shadow: 0 0 0
 .sorting { user-select: none; }
 .item .grip { margin-left: -4px; }
 .rename { height: 26px; padding: 0 6px; flex: 1; min-width: 0; }
-.shadow-row { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
-.shadow-row .color { grid-column: 2 / 5; }
+/* narrow panels stack X, Y and blur so each keeps its label and unit; wide panels put them side by side */
+.shadow-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px 8px; align-items: center; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
+.shadow-row > .grip { grid-column: 1; grid-row: 1; }
+.shadow-row > .ctl, .shadow-row > .color { grid-column: 2; }
+.shadow-row > .icon-btn { grid-column: 3; grid-row: 1; }
+@container (min-width: 520px) {
+  .shadow-row { grid-template-columns: auto repeat(3, minmax(0, 1fr)) auto; align-items: end; }
+  .shadow-row > .ctl { grid-column: auto; grid-row: 1; }
+  .shadow-row > .icon-btn { grid-column: 5; }
+  .shadow-row > .color { grid-column: 2 / 5; }
+}
 
 /* collapsible groups */
 .group { border-top: 1px solid var(--border); margin: 0 -14px; }
@@ -349,7 +361,7 @@ label.btn:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2
 /* phones: the header scrolls away instead of taking a quarter of the screen */
 @media (max-width: 640px) {
   .topbar { position: static; }
-  .stage, .settings-col { top: 12px; }
+  .stage, .settings-col, .lists-col { top: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .toast .drain { display: none; } }
 /* Windows contrast themes: keep selected states visible */

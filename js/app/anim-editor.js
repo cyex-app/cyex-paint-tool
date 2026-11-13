@@ -354,7 +354,7 @@
       const nb = row.querySelector('.name'); if (nb) { if (on) nb.setAttribute('aria-current', 'true'); else nb.removeAttribute('aria-current'); }
     }
     const col = $('.settings-col'), s = findSel();
-    if (col) col.replaceChildren(s ? settingsPanel(s) : emptySettings());
+    if (col) { col.replaceChildren(s ? settingsPanel(s) : emptySettings()); A.resetSticky(col); }
     A.save();
   }
   const emptySettings = () => panel('Settings', [h('div', { class: 'empty' }, icon('layers'), h('span', null, 'Select a layer or effect to change it.'))], [], { key: 'settings-empty' });
@@ -375,7 +375,7 @@
     const d = A.state.anim;
     if (!findSel()) A.state.sel = d.layers.length ? { kind: 'layer', id: d.layers[d.layers.length - 1].id } : d.effects.length ? { kind: 'effect', id: d.effects[0].id } : null;
     root.classList.add('anim');
-    const colA = h('div', { class: 'col' }), colB = h('div', { class: 'col settings-col' });
+    const colA = h('div', { class: 'col lists-col' }), colB = h('div', { class: 'col settings-col' });
     root.append(colA, colB);
 
     if (!Array.isArray(d.groups)) d.groups = [];
