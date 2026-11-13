@@ -47,3 +47,8 @@ Medium:
 
 ## Dropped in verification
 - "A one-stop gradient is invalid CSS": Chrome accepts it (checked in the browser).
+
+## Update: fixes applied (after the user said to commit straight to main)
+Git was initialised on `main` (no branch, as asked); repo-local identity only. 7 commits, listed in changes.md.
+Final checks: build passes; every layer (53), effect (38) and preset (41) renders; loop-seam test clean except intended step effects; GIF/APNG/sheet exports and cancel verified; no horizontal scroll 320 to 2560; 0 console errors.
+Still proposals (not done): split app.js, hot-path allocation pass and O(N) blur, images out of undo history, per-layer thumbnail cache, stop cap and drag auto-scroll, 3:1 control-border token in the cyex token file.
