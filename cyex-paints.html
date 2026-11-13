@@ -683,7 +683,7 @@ h3.label { margin: 0; }
   <div class="toasts errors" id="errors" aria-live="assertive"></div>
   <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 
-  <script>
+  <script data-src="js/core.js" data-engine>
 /* Shared helpers: maths, colour packing (7TV format), gradient lookup tables, noise. */
 window.PL = window.PL || {};
 (function (PL) {
@@ -874,6 +874,7 @@ window.PL = window.PL || {};
   }
   const fmtNum = (n, d = 0) => (+n).toFixed(d).replace('.', ',');
 
+  PL.imageCache = PL.imageCache || {}; // decoded pictures for image and picture layers (filled by the app)
   Object.assign(PL, {
     TAU, clamp, fract, mix, smoothstep, tri, wrap,
     hexToRgb, rgbToHex, packRGBA, unpackRGBA, decToCss, hexAlphaToDec, decToHexAlpha,
@@ -884,7 +885,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/fx.js" data-engine>
 /* Shared per-pixel helpers for layers and effects (loads right after core.js; uses only core.js exports). */
 (function (PL) {
   'use strict';
@@ -981,7 +982,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/paint.js" data-engine>
 /* Static 7TV paints: the v3 JSON model, the CSS the 7TV extension builds from it, and a
    pixel-exact rasteriser so a paint can be exported as PNG. */
 (function (PL) {
@@ -1136,7 +1137,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/encode.js" data-engine>
 /* Local encoders, no libraries: animated GIF (median-cut palette + LZW) and APNG (zlib via the
    browser's built-in CompressionStream). Frames are ImageData objects of equal size. */
 (function (PL) {
@@ -1351,7 +1352,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/library.js" data-engine>
 /* The layer and effect library for animated paints.
    Every layer is a per-pixel sampler: sample(u, v, t, p, out, c) with u, v in 0..1 across the paint,
    t in 0..1 across one loop, out = [r, g, b, a] (0..1, straight alpha). All motion uses whole numbers
@@ -2222,7 +2223,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/more.js" data-engine>
 /* More layers and effects. Same contracts as library.js. */
 (function (PL) {
   'use strict';
@@ -2595,7 +2596,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/elements.js" data-engine>
 /* Scene elements: objects you place, copy and animate (shapes, text and emoji, pictures, ribbons,
    mountains, a city skyline, lightning). They draw with the 2D canvas API: draw(ctx, t, p, c).
    Shared blocks: Colours, Placement, Motion, Copies, Glow and outline. All motion loops seamlessly. */
@@ -3014,7 +3015,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/engine.js" data-engine>
 /* Renders an animated paint document to frames. */
 (function (PL) {
   'use strict';
@@ -3302,7 +3303,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/presets.js" data-engine>
 /* Starting points: static 7TV gradient paints and layered animated paints. */
 (function (PL) {
   'use strict';
@@ -3435,7 +3436,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/ui.js">
 /* Small DOM toolkit in the cyex app style: elements, icons, controls, popovers, dialogs, toasts, tooltips. */
 (function (PL) {
   'use strict';
@@ -4091,7 +4092,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/app/store.js">
 /* cyex paints: app state, persistence (localStorage), undo history and changed(). */
 (function (PL) {
   'use strict';
@@ -4218,7 +4219,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/app/namepaint.js">
 /* cyex paints: painted-name rendering on canvas, matching the 7TV extension. */
 (function (PL) {
   'use strict';
@@ -4273,7 +4274,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/app/editors.js">
 /* cyex paints: shared editors, the static editor, the preview panel, static export and import. */
 (function (PL) {
   'use strict';
@@ -4516,7 +4517,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/app/anim-editor.js">
 /* cyex paints: the animated editor: layers, effects, settings panel, images and thumbnails. */
 (function (PL) {
   'use strict';
@@ -4845,7 +4846,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/app/playback.js">
 /* cyex paints: animated preview playback, drag-to-place and file drop. */
 (function (PL) {
   'use strict';
@@ -4984,7 +4985,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/app/export.js">
 /* cyex paints: animated export (GIF, APNG, sprite sheet, name GIF) and the export result. */
 (function (PL) {
   'use strict';
@@ -5158,7 +5159,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/app/dialogs.js">
 /* cyex paints: library and presets dialogs. */
 (function (PL) {
   'use strict';
@@ -5279,7 +5280,7 @@ window.PL = window.PL || {};
 })(window.PL);
 
 </script>
-  <script>
+  <script data-src="js/app/main.js">
 /* cyex paints: editor wiring for static (7TV gradient) and animated (layered, exported as image) paints.
    main.js: header, keyboard shortcuts, focus restore, rendering and boot. Loads last, after every js/app/ module has registered on PL.App. */
 (function (PL) {

@@ -188,6 +188,7 @@ window.PL = window.PL || {};
   }
   const fmtNum = (n, d = 0) => (+n).toFixed(d).replace('.', ',');
 
+  PL.imageCache = PL.imageCache || {}; // decoded pictures for image and picture layers (filled by the app)
   Object.assign(PL, {
     TAU, clamp, fract, mix, smoothstep, tri, wrap,
     hexToRgb, rgbToHex, packRGBA, unpackRGBA, decToCss, hexAlphaToDec, decToHexAlpha,

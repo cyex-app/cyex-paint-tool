@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Self-test - cyex paints</title>
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <script>
+    (function () { try { if (localStorage.getItem('cyexTheme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {} })();
+  </script>
+  <link rel="stylesheet" href="css/tokens.css">
+  <style>
+    body { font-size: .87rem; }
+    main { max-width: 980px; margin: 0 auto; padding: 26px 20px 60px; display: flex; flex-direction: column; gap: 14px; }
+    h1 { font-size: 1.3rem; margin: 0; }
+    .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    #summary { font: 600 .9rem var(--font-mono); font-variant-numeric: tabular-nums; }
+    #summary.pass { color: var(--green); } #summary.fail, summary.fail, .r.fail { color: var(--red); }
+    button { height: 32px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); font-weight: 600; cursor: pointer; }
+    button:active { transform: scale(.97); }
+    details { background: var(--surface); border: 1px solid var(--border); }
+    summary { padding: 10px 14px; font-weight: 700; cursor: pointer; }
+    .r { padding: 3px 14px; font: .78rem/1.6 var(--font-mono); color: var(--muted); white-space: pre-wrap; border-top: 1px solid var(--border); }
+    textarea { width: 100%; min-height: 160px; font: .74rem var(--font-mono); background: var(--bg); border: 1px solid var(--border-strong); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>cyex paints self-test</h1>
+    <p class="hint" style="color: var(--dim); margin: 0">Renders every layer, effect and preset and compares them with the saved fingerprints, checks loop seams, the encoders, sanitising, palettes, keyframes and the 7TV format. Runs entirely in this page.</p>
+    <div class="bar"><span id="summary">Running…</span><button id="rerun" type="button">Run again</button><button id="copyBaseline" type="button">Copy new baseline</button></div>
+    <textarea id="baselineOut" hidden aria-label="New baseline"></textarea>
+    <div id="results"></div>
+  </main>
+  <script src="js/core.js"></script>
+  <script src="js/fx.js"></script>
+  <script src="js/paint.js"></script>
+  <script src="js/encode.js"></script>
+  <script src="js/library.js"></script>
+  <script src="js/more.js"></script>
+  <script src="js/elements.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/presets.js"></script>
+  <script src="js/tests-baseline.js"></script>
+  <script src="js/tests.js"></script>
+</body>
+</html>
