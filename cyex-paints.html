@@ -3837,6 +3837,7 @@ window.PL = window.PL || {};
   }
 
   function download(blob, name) {
+    if (!blob) { toast('Couldn’t create that file. It may be too large for the browser.', 'error'); return; }
     const a = h('a', { href: URL.createObjectURL(blob), download: name });
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
@@ -4639,82 +4640,106 @@ window.PL = window.PL || {};
   requestAnimationFrame(tick);
 
   // ---- animated export ----
-  let lastExport = null;
+  let lastExport = null, exporting = null;
+  const setExport = (rec) => { if (lastExport && lastExport.url) URL.revokeObjectURL(lastExport.url); lastExport = rec; };
   function animOutput() {
     const d = state.anim, g = state.gif;
     const result = h('div', { class: 'stack', id: 'exportResult' });
     if (lastExport) showResult(result, lastExport);
-    const busy = (b, label) => { b.disabled = true; const old = [...b.childNodes]; b.replaceChildren(h('span', { class: 'spinner' }), label); return (txt) => { if (txt) b.lastChild.textContent = txt; else { b.disabled = false; b.replaceChildren(...old); } }; };
+    const exportBtns = [];
+    const cancelB = btn('Cancel', () => { if (exporting) exporting.cancel = true; }, 'ghost small', 'x');
+    cancelB.hidden = true;
 
-    async function allFrames(update) {
-      const cp = E.compile(state.anim), n = cp.frames, out = [];
-      const reuse = !rt.dirty && rt.cp && rt.cache.length;
-      for (let i = 0; i < n; i++) {
-        out.push(reuse && rt.cache[i] ? rt.cache[i] : E.renderFrame(cp, i));
-        if (i % 2 === 0) { update(`Rendering ${i + 1} / ${n}`); await new Promise((r) => setTimeout(r)); }
+    // Every export works on a snapshot of the paint taken when it starts, so editing meanwhile
+    // can't mix frames. Only one export runs at a time, and it can be cancelled.
+    async function runExport(b, work) {
+      if (exporting) return;
+      const doc = clone(state.anim);
+      if (!doc.layers.some((l) => l.visible)) { toast('There is nothing to export yet. Add or show a layer first.'); return; }
+      const cp = E.compile(doc);
+      const px = cp.W * cp.H * cp.frames;
+      if (px > 12e6 && !(await confirmHeavy(cp))) return;
+      exporting = { cancel: false };
+      const job = exporting;
+      const old = [...b.childNodes];
+      exportBtns.forEach((x) => (x.disabled = true));
+      b.replaceChildren(h('span', { class: 'spinner' }), h('span', null, 'Rendering…'));
+      cancelB.hidden = false;
+      const update = (txt) => { b.lastChild.textContent = txt; };
+      const frames = async () => {
+        const out = [];
+        for (let i = 0; i < cp.frames; i++) {
+          if (job.cancel) throw new Error('cancelled');
+          out.push(E.renderFrame(cp, i));
+          update(`Rendering ${i + 1} / ${cp.frames}`);
+          await new Promise((r) => setTimeout(r));
+        }
+        if (job.cancel) throw new Error('cancelled');
+        update('Encoding…'); await new Promise((r) => setTimeout(r, 20));
+        return out;
+      };
+      try { await work({ doc, cp, frames }); }
+      catch (e) { if (e.message === 'cancelled') toast('Export cancelled.'); else { console.error(e); toast('Couldn’t finish the export. Try a smaller size or a shorter loop.', 'error'); } }
+      finally {
+        exporting = null;
+        exportBtns.forEach((x) => (x.disabled = false));
+        b.replaceChildren(...old);
+        cancelB.hidden = true;
       }
-      return out;
     }
-    const gifB = btn('Export GIF', async () => {
-      const done = busy(gifB, 'Rendering…');
-      try {
-        const frames = await allFrames(done);
-        done('Encoding…'); await new Promise((r) => setTimeout(r, 20));
-        const blob = PL.Encode.encodeGif(frames, { delayCs: Math.round(100 / d.fps), colors: g.colors, dither: g.dither, alphaCut: g.alpha ? 128 : 0, matte: g.alpha ? null : PL.hexToRgb(state.preview.color) });
-        lastExport = { blob, name: slug(d.name) + '.gif', kind: 'GIF', w: d.width, h: d.height, frames: frames.length };
-        showResult(result, lastExport); download(blob, lastExport.name);
-      } catch (e) { console.error(e); toast('GIF export failed: ' + e.message, 'error'); }
-      done();
-    }, 'primary', 'film');
-    const apngB = btn('Export APNG', async () => {
-      const done = busy(apngB, 'Rendering…');
-      try {
-        if (!window.CompressionStream) throw new Error('This browser has no CompressionStream; use a current Chrome, Edge or Firefox.');
-        const frames = await allFrames(done);
-        done('Encoding…');
-        const blob = await PL.Encode.encodeApng(frames, { delayMs: 1000 / d.fps });
-        lastExport = { blob, name: slug(d.name) + '.png', kind: 'APNG', w: d.width, h: d.height, frames: frames.length };
-        showResult(result, lastExport); download(blob, lastExport.name);
-      } catch (e) { console.error(e); toast('APNG export failed: ' + e.message, 'error'); }
-      done();
-    }, 'secondary', 'film');
+    function confirmHeavy(cp) {
+      return new Promise((resolve) => {
+        let answered = false;
+        const finish = (v) => { if (answered) return; answered = true; resolve(v); dlg.close(); };
+        const dlg = dialog('This is a big export', [h('p', null, `It renders ${PL.fmtInt(cp.frames)} frames at ${cp.W}×${cp.H}, which can take a minute and use a lot of memory. A smaller size, fewer frames per second or a shorter loop make it faster.`)], {
+          footer: [btn('Cancel', () => finish(false), 'secondary'), btn('Export anyway', () => finish(true), 'primary')],
+          onClose: () => { if (!answered) { answered = true; resolve(false); } },
+        });
+      });
+    }
+    const finishExport = (rec) => { setExport(rec); showResult(result, rec); download(rec.blob, rec.name); };
+
+    const gifB = btn('Export GIF', () => runExport(gifB, async ({ doc, cp, frames }) => {
+      const fr = await frames();
+      const blob = PL.Encode.encodeGif(fr, { delayCs: Math.round(100 / doc.fps), colors: g.colors, dither: g.dither, alphaCut: g.alpha ? 128 : 0, matte: g.alpha ? null : PL.hexToRgb(state.preview.color) });
+      finishExport({ blob, name: slug(doc.name) + '.gif', kind: 'GIF', w: cp.W, h: cp.H, frames: fr.length, shadows: doc.shadows });
+    }), 'primary', 'film');
+    const apngB = btn('Export APNG', () => runExport(apngB, async ({ doc, cp, frames }) => {
+      if (!window.CompressionStream) { toast('This browser can’t make APNG files. Use a current Chrome, Edge or Firefox.', 'error'); return; }
+      const fr = await frames();
+      const blob = await PL.Encode.encodeApng(fr, { delayMs: 1000 / doc.fps });
+      finishExport({ blob, name: slug(doc.name) + '.png', kind: 'APNG', w: cp.W, h: cp.H, frames: fr.length, shadows: doc.shadows });
+    }), 'secondary', 'film');
     const pngB = btn('Frame PNG', () => { if (!rt.texCv) return; rt.texCv.toBlob((b) => download(b, `${slug(d.name)}-frame-${rt.frame + 1}.png`)); }, 'secondary', 'image');
-    const sheetB = btn('Sprite sheet', async () => {
-      const done = busy(sheetB, 'Rendering…');
-      try {
-        const frames = await allFrames(done);
-        const cv = h('canvas', { width: d.width, height: d.height * frames.length }), ctx = cv.getContext('2d');
-        frames.forEach((f, i) => ctx.putImageData(f, 0, i * d.height));
-        cv.toBlob((b) => download(b, slug(d.name) + '-sheet.png'));
-      } catch (e) { toast('Sprite sheet failed: ' + e.message, 'error'); }
-      done();
-    }, 'secondary', 'image');
+    const sheetB = btn('Sprite sheet', () => runExport(sheetB, async ({ doc, cp, frames }) => {
+      const fr = await frames();
+      // a grid, so tall loops stay under the browser's canvas size limit
+      const cols = Math.max(1, Math.min(fr.length, Math.floor(16384 / cp.W))), rows = Math.ceil(fr.length / cols);
+      const cv = h('canvas', { width: cp.W * cols, height: cp.H * rows }), ctx = cv.getContext('2d');
+      fr.forEach((f, i) => ctx.putImageData(f, (i % cols) * cp.W, Math.floor(i / cols) * cp.H));
+      await new Promise((res) => cv.toBlob((b) => { download(b, slug(doc.name) + '-sheet.png'); res(); }));
+    }), 'secondary', 'image');
 
     // animated painted name (for sharing / showing off)
-    const nameB = btn('Name GIF', async () => {
-      const done = busy(nameB, 'Rendering…');
-      try {
-        const frames = await allFrames(done);
-        const px = state.nameSize, m = measure(state.preview.text, px), pad = shadowPad(d.shadows);
-        const W = m.w + pad * 2, H = m.h + pad * 2;
-        const cv = h('canvas', { width: W, height: H }), ctx = cv.getContext('2d', { willReadFrequently: true });
-        const tex = h('canvas', { width: d.width, height: d.height }), tctx = tex.getContext('2d');
-        const bg = state.preview.bg;
-        const bgCol = bg === 'light' ? '#ffffff' : bg === 'dark' ? '#18181b' : null;
-        const out = frames.map((f) => {
-          tctx.putImageData(f, 0, 0);
-          ctx.clearRect(0, 0, W, H);
-          if (bgCol) { ctx.fillStyle = bgCol; ctx.fillRect(0, 0, W, H); }
-          paintName(ctx, pad, pad, state.preview.text, px, tex, state.preview.color, d.shadows, 1);
-          return ctx.getImageData(0, 0, W, H);
-        });
-        done('Encoding…'); await new Promise((r) => setTimeout(r, 20));
-        const blob = PL.Encode.encodeGif(out, { delayCs: Math.round(100 / d.fps), colors: g.colors, dither: g.dither, alphaCut: 110 });
-        lastExport = { blob, name: slug(d.name) + '-name.gif', kind: 'Name GIF', w: W, h: H, frames: out.length, isName: true };
-        showResult(result, lastExport); download(blob, lastExport.name);
-      } catch (e) { console.error(e); toast('Name GIF failed: ' + e.message, 'error'); }
-      done();
-    }, 'secondary', 'film');
+    const nameB = btn('Name GIF', () => runExport(nameB, async ({ doc, cp, frames }) => {
+      const fr = await frames();
+      const px = state.nameSize, m = measure(state.preview.text, px), pad = shadowPad(doc.shadows);
+      const W = m.w + pad * 2, H = m.h + pad * 2;
+      const cv = h('canvas', { width: W, height: H }), ctx = cv.getContext('2d', { willReadFrequently: true });
+      const tex = h('canvas', { width: cp.W, height: cp.H }), tctx = tex.getContext('2d');
+      const bg = state.preview.bg;
+      const bgCol = bg === 'light' ? '#ffffff' : bg === 'dark' ? '#18181b' : null;
+      const out = fr.map((f) => {
+        tctx.putImageData(f, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+        if (bgCol) { ctx.fillStyle = bgCol; ctx.fillRect(0, 0, W, H); }
+        paintName(ctx, pad, pad, state.preview.text, px, tex, state.preview.color, doc.shadows, 1);
+        return ctx.getImageData(0, 0, W, H);
+      });
+      const blob = PL.Encode.encodeGif(out, { delayCs: Math.round(100 / doc.fps), colors: g.colors, dither: g.dither, alphaCut: 110 });
+      finishExport({ blob, name: slug(doc.name) + '-name.gif', kind: 'Name GIF', w: W, h: H, frames: out.length, isName: true });
+    }), 'secondary', 'film');
+    exportBtns.push(gifB, apngB, sheetB, nameB);
 
     const gifOpts = h('div', { class: 'sub' }, h('span', { class: 'label' }, 'GIF options'),
       h('div', { class: 'row' }, h('span', { class: 'hint' }, 'Colours'), seg([[64, '64'], [128, '128'], [256, '256']], g.colors, (v) => { g.colors = v; save(); }, 'GIF colours')),
@@ -4742,7 +4767,7 @@ window.PL = window.PL || {};
     const openP = h('label', { class: 'btn secondary small' }, icon('folder'), 'Open project', file);
 
     return panel('Export', [
-      h('div', { class: 'export-grid' }, gifB, apngB, pngB, sheetB, nameB),
+      h('div', { class: 'export-grid' }, gifB, apngB, pngB, sheetB, nameB), h('div', null, cancelB),
       result, gifOpts, nsz,
       h('div', { class: 'sub' }, h('span', { class: 'label' }, '7TV paint'),
         labeled('Where the image will be hosted', url),
@@ -4754,7 +4779,7 @@ window.PL = window.PL || {};
     host.textContent = '';
     if (!r.url) r.url = URL.createObjectURL(r.blob); // one URL per export, revoked when replaced
     const url = r.url;
-    const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: state.preview.color, backgroundImage: `url(${url})`, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: state.anim.shadows }) } }, state.preview.text);
+    const sevenTv = r.isName ? null : h('span', { class: 'pname painted', style: { fontSize: '28px', color: state.preview.color, backgroundImage: `url("${url}")`, backgroundSize: '100% 100%', filter: Paint.filterCss({ shadows: r.shadows || state.anim.shadows }) } }, state.preview.text);
     host.append(h('div', { class: 'result' },
       h('img', { src: url, alt: r.kind + ' export' }),
       h('div', { class: 'ctl grow' },

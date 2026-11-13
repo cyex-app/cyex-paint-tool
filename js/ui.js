@@ -559,6 +559,7 @@
   }
 
   function download(blob, name) {
+    if (!blob) { toast('Couldn’t create that file. It may be too large for the browser.', 'error'); return; }
     const a = h('a', { href: URL.createObjectURL(blob), download: name });
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
