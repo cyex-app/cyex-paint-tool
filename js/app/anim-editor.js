@@ -249,9 +249,15 @@
   // ---- thumbnails ----
   let thumbTimer = 0;
   function scheduleThumbs(now) { clearTimeout(thumbTimer); thumbTimer = setTimeout(drawThumbs, now ? 0 : 250); }
+  // Thumbnails are cached per item, keyed by everything that changes its picture, so a click or a
+  // change to one layer re-renders only that layer's thumb (effect thumbs also depend on the layers).
+  const thumbCache = new Map(); // id -> { key, canvas }
+  const keyOf = (x) => JSON.stringify(x, (k, v) => (k === 'src' && typeof v === 'string' ? v.length + ':' + v.slice(-24) + (PL.imageCache[v] ? '+' : '-') : k === 'name' ? undefined : v));
   function drawThumbs() {
     if (A.state.mode !== 'anim') return;
     const d = A.state.anim, t = 0.15;
+    const size = d.width + 'x' + d.height + keyOf(d.tweak), layersKey = keyOf(d.layers);
+    const alive = new Set();
     for (const cv of document.querySelectorAll('[data-thumb]')) {
       const id = cv.dataset.thumb;
       const l = d.layers.find((x) => x.id === id), e = d.effects.find((x) => x.id === id);
@@ -259,14 +265,21 @@
       if (l) mini = Object.assign({}, d, { layers: [Object.assign({}, l, { visible: true, opacity: 1, blend: 'normal' })], effects: [] });
       else if (e) mini = Object.assign({}, d, { effects: [Object.assign({}, e, { visible: true })] });
       else continue;
+      alive.add(id);
+      const key = size + (l ? keyOf(Object.assign({}, l, { visible: true, opacity: 1, blend: 'normal' })) : keyOf(e) + layersKey);
+      const hit = thumbCache.get(id);
+      if (hit && hit.key === key) { const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height); ctx.drawImage(hit.canvas, 0, 0, cv.width, cv.height); continue; }
       const cp = E.compile(mini);
       // render at the paint's aspect, then letterbox into the thumb
-      const W = 88, H = Math.max(4, Math.round(88 / (d.width / d.height)));
+      // full paint size (capped), then scaled down: small particles stay visible, and the cache keeps it cheap
+      const W = Math.min(d.width, 256), H = Math.max(4, Math.round(W / (d.width / d.height)));
       const img = E.toImageData(E.renderBuf(cp, t, W, H), W, H);
       const tmp = h('canvas', { width: W, height: H }); tmp.getContext('2d').putImageData(img, 0, 0);
       const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height);
       ctx.drawImage(tmp, 0, 0, cv.width, cv.height); // stretched, the way 7TV stretches it over a name
+      thumbCache.set(id, { key, canvas: tmp });
     }
+    for (const id of thumbCache.keys()) if (!alive.has(id)) thumbCache.delete(id);
   }
 
   Object.assign(A, { findSel, renderAnimEditor, settingsPanel, fileToDataUrl, cacheImage, cacheDocImages, scheduleThumbs });

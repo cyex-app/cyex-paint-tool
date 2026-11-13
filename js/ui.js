@@ -249,6 +249,7 @@
   }
 
   // ---- gradient stops editor (stops: [{ at, color, a }]) ----
+  const MAX_STOPS = 32; // beyond this the handles overlap and the list gets slow; imports keep up to 64
   function stopsEditor(stops, onChange, opts = {}) {
     let sel = opts.selected ?? 0;
     const root = h('div', { class: 'stops' });
@@ -288,6 +289,7 @@
     }
     bar.addEventListener('pointerdown', (e) => {
       if (e.target.classList.contains('handle')) return;
+      if (stops.length >= MAX_STOPS) { toast(`A gradient can have up to ${MAX_STOPS} stops.`); return; }
       const r = bar.getBoundingClientRect(), at = Math.round(PL.clamp((e.clientX - r.left) / r.width) * 1000) / 1000;
       const c = sampleAt(at);
       stops.push({ at, color: c.color, a: c.a });
@@ -319,7 +321,7 @@
     function markSel() { [...list.children].forEach((r, i) => r.classList.toggle('sel', i === sel)); bar.querySelectorAll('.handle').forEach((x, i) => x.classList.toggle('sel', i === sel)); }
     function renderAll() { fillEl.style.background = cssOf(); renderHandles(); renderList(); }
     const tools = h('div', { class: 'row' },
-      btn('Add stop', () => { const a = stops[sel] || stops[0]; const b = stops[sel + 1]; const at = b ? (a.at + b.at) / 2 : a ? Math.min(1, a.at + 0.1) : 0; const c = sampleAt(at); stops.push({ at: Math.round(at * 1000) / 1000, color: c.color, a: c.a }); stops.sort((x, y) => x.at - y.at); sel = stops.findIndex((s) => s.at === Math.round(at * 1000) / 1000); renderAll(); emit(true); }, 'secondary small', 'plus'),
+      btn('Add stop', () => { if (stops.length >= MAX_STOPS) { toast(`A gradient can have up to ${MAX_STOPS} stops.`); return; } const a = stops[sel] || stops[0]; const b = stops[sel + 1]; const at = b ? (a.at + b.at) / 2 : a ? Math.min(1, a.at + 0.1) : 0; const c = sampleAt(at); stops.push({ at: Math.round(at * 1000) / 1000, color: c.color, a: c.a }); stops.sort((x, y) => x.at - y.at); sel = stops.findIndex((s) => s.at === Math.round(at * 1000) / 1000); renderAll(); emit(true); }, 'secondary small', 'plus'),
       btn('Reverse', () => { stops.forEach((s) => (s.at = Math.round((1 - s.at) * 1000) / 1000)); stops.reverse(); renderAll(); emit(true); }, 'ghost small', 'swap'),
       btn('Spread evenly', () => { stops.sort((a, b) => a.at - b.at); stops.forEach((s, i) => (s.at = stops.length > 1 ? Math.round((i / (stops.length - 1)) * 1000) / 1000 : 0)); renderAll(); emit(true); }, 'ghost small', 'spread'),
       opts.palettes ? paletteMenu((pal) => { stops.splice(0, stops.length, ...PL.clone(pal)); sel = 0; renderAll(); emit(true); }) : null);
@@ -451,10 +453,24 @@
       el.classList.add('dragging');
       container.classList.add('sorting');
       try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+      // Auto-scroll: near the top or bottom edge of the scroll area, keep scrolling so long lists
+      // can be reordered past the viewport. Row positions account for how far it has scrolled.
+      const scroller = (() => { for (let p = container.parentElement; p; p = p.parentElement) { const oy = getComputedStyle(p).overflowY; if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) return p; } return null; })();
+      const scrollPos = () => (scroller ? scroller.scrollTop : scrollY);
+      const startScroll = scrollPos();
+      let lastY = e.clientY, raf = 0;
+      const edge = () => {
+        const top = scroller ? scroller.getBoundingClientRect().top : 0, bottom = scroller ? scroller.getBoundingClientRect().bottom : innerHeight;
+        const zone = 48, v = lastY < top + zone ? -(top + zone - lastY) : lastY > bottom - zone ? lastY - (bottom - zone) : 0;
+        if (v) { const d = Math.sign(v) * Math.min(18, Math.ceil(Math.abs(v) / 3)); if (scroller) scroller.scrollTop += d; else scrollBy(0, d); move({ clientY: lastY }); }
+        raf = requestAnimationFrame(edge);
+      };
+      raf = requestAnimationFrame(edge);
       const move = (ev) => {
-        const dy = ev.clientY - startY;
+        lastY = ev.clientY;
+        const dy = ev.clientY - startY + (scrollPos() - startScroll);
         el.style.transform = `translateY(${dy}px)`;
-        const cy = rects[from].top + rects[from].height / 2 + dy;
+        const cy = rects[from].top + rects[from].height / 2 + dy; // in start-of-drag coordinates, like rects
         to = from;
         for (let i = 0; i < items.length; i++) {
           const mid = rects[i].top + rects[i].height / 2;
@@ -471,6 +487,7 @@
       };
       const end = () => {
         grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
+        cancelAnimationFrame(raf);
         items.forEach((it) => { it.style.transform = ''; });
         el.classList.remove('dragging'); container.classList.remove('sorting');
         if (to !== from) onMove(from, to);

@@ -3602,6 +3602,7 @@ window.PL = window.PL || {};
   }
 
   // ---- gradient stops editor (stops: [{ at, color, a }]) ----
+  const MAX_STOPS = 32; // beyond this the handles overlap and the list gets slow; imports keep up to 64
   function stopsEditor(stops, onChange, opts = {}) {
     let sel = opts.selected ?? 0;
     const root = h('div', { class: 'stops' });
@@ -3641,6 +3642,7 @@ window.PL = window.PL || {};
     }
     bar.addEventListener('pointerdown', (e) => {
       if (e.target.classList.contains('handle')) return;
+      if (stops.length >= MAX_STOPS) { toast(`A gradient can have up to ${MAX_STOPS} stops.`); return; }
       const r = bar.getBoundingClientRect(), at = Math.round(PL.clamp((e.clientX - r.left) / r.width) * 1000) / 1000;
       const c = sampleAt(at);
       stops.push({ at, color: c.color, a: c.a });
@@ -3672,7 +3674,7 @@ window.PL = window.PL || {};
     function markSel() { [...list.children].forEach((r, i) => r.classList.toggle('sel', i === sel)); bar.querySelectorAll('.handle').forEach((x, i) => x.classList.toggle('sel', i === sel)); }
     function renderAll() { fillEl.style.background = cssOf(); renderHandles(); renderList(); }
     const tools = h('div', { class: 'row' },
-      btn('Add stop', () => { const a = stops[sel] || stops[0]; const b = stops[sel + 1]; const at = b ? (a.at + b.at) / 2 : a ? Math.min(1, a.at + 0.1) : 0; const c = sampleAt(at); stops.push({ at: Math.round(at * 1000) / 1000, color: c.color, a: c.a }); stops.sort((x, y) => x.at - y.at); sel = stops.findIndex((s) => s.at === Math.round(at * 1000) / 1000); renderAll(); emit(true); }, 'secondary small', 'plus'),
+      btn('Add stop', () => { if (stops.length >= MAX_STOPS) { toast(`A gradient can have up to ${MAX_STOPS} stops.`); return; } const a = stops[sel] || stops[0]; const b = stops[sel + 1]; const at = b ? (a.at + b.at) / 2 : a ? Math.min(1, a.at + 0.1) : 0; const c = sampleAt(at); stops.push({ at: Math.round(at * 1000) / 1000, color: c.color, a: c.a }); stops.sort((x, y) => x.at - y.at); sel = stops.findIndex((s) => s.at === Math.round(at * 1000) / 1000); renderAll(); emit(true); }, 'secondary small', 'plus'),
       btn('Reverse', () => { stops.forEach((s) => (s.at = Math.round((1 - s.at) * 1000) / 1000)); stops.reverse(); renderAll(); emit(true); }, 'ghost small', 'swap'),
       btn('Spread evenly', () => { stops.sort((a, b) => a.at - b.at); stops.forEach((s, i) => (s.at = stops.length > 1 ? Math.round((i / (stops.length - 1)) * 1000) / 1000 : 0)); renderAll(); emit(true); }, 'ghost small', 'spread'),
       opts.palettes ? paletteMenu((pal) => { stops.splice(0, stops.length, ...PL.clone(pal)); sel = 0; renderAll(); emit(true); }) : null);
@@ -3804,10 +3806,24 @@ window.PL = window.PL || {};
       el.classList.add('dragging');
       container.classList.add('sorting');
       try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+      // Auto-scroll: near the top or bottom edge of the scroll area, keep scrolling so long lists
+      // can be reordered past the viewport. Row positions account for how far it has scrolled.
+      const scroller = (() => { for (let p = container.parentElement; p; p = p.parentElement) { const oy = getComputedStyle(p).overflowY; if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) return p; } return null; })();
+      const scrollPos = () => (scroller ? scroller.scrollTop : scrollY);
+      const startScroll = scrollPos();
+      let lastY = e.clientY, raf = 0;
+      const edge = () => {
+        const top = scroller ? scroller.getBoundingClientRect().top : 0, bottom = scroller ? scroller.getBoundingClientRect().bottom : innerHeight;
+        const zone = 48, v = lastY < top + zone ? -(top + zone - lastY) : lastY > bottom - zone ? lastY - (bottom - zone) : 0;
+        if (v) { const d = Math.sign(v) * Math.min(18, Math.ceil(Math.abs(v) / 3)); if (scroller) scroller.scrollTop += d; else scrollBy(0, d); move({ clientY: lastY }); }
+        raf = requestAnimationFrame(edge);
+      };
+      raf = requestAnimationFrame(edge);
       const move = (ev) => {
-        const dy = ev.clientY - startY;
+        lastY = ev.clientY;
+        const dy = ev.clientY - startY + (scrollPos() - startScroll);
         el.style.transform = `translateY(${dy}px)`;
-        const cy = rects[from].top + rects[from].height / 2 + dy;
+        const cy = rects[from].top + rects[from].height / 2 + dy; // in start-of-drag coordinates, like rects
         to = from;
         for (let i = 0; i < items.length; i++) {
           const mid = rects[i].top + rects[i].height / 2;
@@ -3824,6 +3840,7 @@ window.PL = window.PL || {};
       };
       const end = () => {
         grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
+        cancelAnimationFrame(raf);
         items.forEach((it) => { it.style.transform = ''; });
         el.classList.remove('dragging'); container.classList.remove('sorting');
         if (to !== from) onMove(from, to);
@@ -4011,7 +4028,11 @@ window.PL = window.PL || {};
     }, 300);
   }
 
-  const snap = () => JSON.stringify({ mode: A.state.mode, static: A.state.static, anim: A.state.anim });
+  // Undo snapshots keep pictures out: each data URL is stored once in a side table and the
+  // snapshot holds a short token, so 120 history steps don't hold 120 copies of every image.
+  const imgToken = new Map(), tokenImg = new Map();
+  const tokenFor = (src) => { let t = imgToken.get(src); if (!t) { t = '@img' + imgToken.size; imgToken.set(src, t); tokenImg.set(t, src); } return t; };
+  const snap = () => JSON.stringify({ mode: A.state.mode, static: A.state.static, anim: A.state.anim }, (k, v) => (k === 'src' && typeof v === 'string' && v.startsWith('data:') ? tokenFor(v) : v));
   const hist = { past: [], future: [], last: snap() };
   let commitTimer = 0;
   function commit() {
@@ -4023,7 +4044,7 @@ window.PL = window.PL || {};
     updateUndo(); save();
   }
   function restore(s) {
-    const o = JSON.parse(s);
+    const o = JSON.parse(s, (k, v) => (k === 'src' && typeof v === 'string' && tokenImg.has(v) ? tokenImg.get(v) : v));
     A.state.mode = o.mode; A.state.static = o.static; A.state.anim = o.anim;
     hist.last = s;
     A.renderAll(); save(); updateUndo();
@@ -4594,9 +4615,15 @@ window.PL = window.PL || {};
   // ---- thumbnails ----
   let thumbTimer = 0;
   function scheduleThumbs(now) { clearTimeout(thumbTimer); thumbTimer = setTimeout(drawThumbs, now ? 0 : 250); }
+  // Thumbnails are cached per item, keyed by everything that changes its picture, so a click or a
+  // change to one layer re-renders only that layer's thumb (effect thumbs also depend on the layers).
+  const thumbCache = new Map(); // id -> { key, canvas }
+  const keyOf = (x) => JSON.stringify(x, (k, v) => (k === 'src' && typeof v === 'string' ? v.length + ':' + v.slice(-24) + (PL.imageCache[v] ? '+' : '-') : k === 'name' ? undefined : v));
   function drawThumbs() {
     if (A.state.mode !== 'anim') return;
     const d = A.state.anim, t = 0.15;
+    const size = d.width + 'x' + d.height + keyOf(d.tweak), layersKey = keyOf(d.layers);
+    const alive = new Set();
     for (const cv of document.querySelectorAll('[data-thumb]')) {
       const id = cv.dataset.thumb;
       const l = d.layers.find((x) => x.id === id), e = d.effects.find((x) => x.id === id);
@@ -4604,14 +4631,21 @@ window.PL = window.PL || {};
       if (l) mini = Object.assign({}, d, { layers: [Object.assign({}, l, { visible: true, opacity: 1, blend: 'normal' })], effects: [] });
       else if (e) mini = Object.assign({}, d, { effects: [Object.assign({}, e, { visible: true })] });
       else continue;
+      alive.add(id);
+      const key = size + (l ? keyOf(Object.assign({}, l, { visible: true, opacity: 1, blend: 'normal' })) : keyOf(e) + layersKey);
+      const hit = thumbCache.get(id);
+      if (hit && hit.key === key) { const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height); ctx.drawImage(hit.canvas, 0, 0, cv.width, cv.height); continue; }
       const cp = E.compile(mini);
       // render at the paint's aspect, then letterbox into the thumb
-      const W = 88, H = Math.max(4, Math.round(88 / (d.width / d.height)));
+      // full paint size (capped), then scaled down: small particles stay visible, and the cache keeps it cheap
+      const W = Math.min(d.width, 256), H = Math.max(4, Math.round(W / (d.width / d.height)));
       const img = E.toImageData(E.renderBuf(cp, t, W, H), W, H);
       const tmp = h('canvas', { width: W, height: H }); tmp.getContext('2d').putImageData(img, 0, 0);
       const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height);
       ctx.drawImage(tmp, 0, 0, cv.width, cv.height); // stretched, the way 7TV stretches it over a name
+      thumbCache.set(id, { key, canvas: tmp });
     }
+    for (const id of thumbCache.keys()) if (!alive.has(id)) thumbCache.delete(id);
   }
 
   Object.assign(A, { findSel, renderAnimEditor, settingsPanel, fileToDataUrl, cacheImage, cacheDocImages, scheduleThumbs });

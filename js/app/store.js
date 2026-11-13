@@ -75,7 +75,11 @@
     }, 300);
   }
 
-  const snap = () => JSON.stringify({ mode: A.state.mode, static: A.state.static, anim: A.state.anim });
+  // Undo snapshots keep pictures out: each data URL is stored once in a side table and the
+  // snapshot holds a short token, so 120 history steps don't hold 120 copies of every image.
+  const imgToken = new Map(), tokenImg = new Map();
+  const tokenFor = (src) => { let t = imgToken.get(src); if (!t) { t = '@img' + imgToken.size; imgToken.set(src, t); tokenImg.set(t, src); } return t; };
+  const snap = () => JSON.stringify({ mode: A.state.mode, static: A.state.static, anim: A.state.anim }, (k, v) => (k === 'src' && typeof v === 'string' && v.startsWith('data:') ? tokenFor(v) : v));
   const hist = { past: [], future: [], last: snap() };
   let commitTimer = 0;
   function commit() {
@@ -87,7 +91,7 @@
     updateUndo(); save();
   }
   function restore(s) {
-    const o = JSON.parse(s);
+    const o = JSON.parse(s, (k, v) => (k === 'src' && typeof v === 'string' && tokenImg.has(v) ? tokenImg.get(v) : v));
     A.state.mode = o.mode; A.state.static = o.static; A.state.anim = o.anim;
     hist.last = s;
     A.renderAll(); save(); updateUndo();

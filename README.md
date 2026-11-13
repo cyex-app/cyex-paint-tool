@@ -4,6 +4,8 @@ A local editor for 7TV name paints. No server, no install, nothing uploaded.
 
 **Open:** double-click `cyex-paints.html` (one self-contained file). `index.html` also works and loads the separate files in `css/` and `js/`.
 
+Code layout: `js/core.js` and `js/fx.js` (maths, colour, shared pixel helpers), `js/paint.js` (7TV static paints), `js/encode.js` (GIF/APNG), `js/library.js`, `js/more.js`, `js/elements.js` (layers, effects, scene elements), `js/engine.js` (rendering), `js/presets.js`, `js/ui.js` (controls), and `js/app/` (store, name rendering, editors, playback, export, dialogs, main).
+
 **Rebuild the single file after editing the sources:**
 
 ```bash

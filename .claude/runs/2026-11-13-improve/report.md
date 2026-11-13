@@ -52,3 +52,12 @@ Medium:
 Git was initialised on `main` (no branch, as asked); repo-local identity only. 7 commits, listed in changes.md.
 Final checks: build passes; every layer (53), effect (38) and preset (41) renders; loop-seam test clean except intended step effects; GIF/APNG/sheet exports and cancel verified; no horizontal scroll 320 to 2560; 0 console errors.
 Still proposals (not done): split app.js, hot-path allocation pass and O(N) blur, images out of undo history, per-layer thumbnail cache, stop cap and drag auto-scroll, 3:1 control-border token in the cyex token file.
+
+## Update: proposals done
+- app.js split into js/app/ (store, namepaint, editors, anim-editor, playback, export, dialogs, main) sharing PL.App. Commit 5cb6b4e.
+- Shared helpers in js/fx.js; per-pixel allocations removed; O(1) running-sum blur. All 134 render fingerprints byte-identical before and after. Commit dcaf851.
+- --control-border token (>= 3:1 in both themes) and a one-row phone header. Commit 7695c6d.
+- Thumbnail cache per layer (selecting a layer re-renders nothing; thumbs render at paint size so particles show).
+- Undo history stores each picture once (tokens in snapshots); undo/redo with pictures verified.
+- Gradient stops capped at 32 in the editor (imports keep up to 64).
+- Drag reorder auto-scrolls the page or the settings column near its edges.
