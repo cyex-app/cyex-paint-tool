@@ -377,3 +377,8 @@ label.btn:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2
 .ptoggle:focus-visible { outline-offset: 2px; }
 .panel.collapsed > header { border-bottom: 0; }
 .panel > .body > .stagebox:first-child { margin: -14px -14px 0; }
+/* the layer name is a button (select, F2 rename) that looks like plain text */
+.item .name { padding: 0 2px; border: 0; background: none; text-align: left; color: inherit; font: inherit; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm); min-height: 26px; }
+.item .name:focus-visible { outline-offset: 0; }
+/* narrow panels (phones): drop row thumbnails so layer names stay readable */
+@container (max-width: 320px) { .item .thumb { display: none; } .item .meta { display: none; } }

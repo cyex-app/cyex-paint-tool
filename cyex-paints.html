@@ -601,6 +601,11 @@ label.btn:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2
 .ptoggle:focus-visible { outline-offset: 2px; }
 .panel.collapsed > header { border-bottom: 0; }
 .panel > .body > .stagebox:first-child { margin: -14px -14px 0; }
+/* the layer name is a button (select, F2 rename) that looks like plain text */
+.item .name { padding: 0 2px; border: 0; background: none; text-align: left; color: inherit; font: inherit; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm); min-height: 26px; }
+.item .name:focus-visible { outline-offset: 0; }
+/* narrow panels (phones): drop row thumbnails so layer names stay readable */
+@container (max-width: 320px) { .item .thumb { display: none; } .item .meta { display: none; } }
 
 </style>
 </head>
@@ -4120,17 +4125,17 @@ window.PL = window.PL || {};
     p.querySelector('.body').append(...body);
     p.querySelector('.body').prepend(box);
     // names
-    const names = SIZES.map((px) => (kind === 'static' ? h('span', { class: 'pname painted', style: { fontSize: px + 'px' } }) : h('canvas', { class: 'pname', 'aria-hidden': 'true' })));
+    const names = SIZES.map((px) => (kind === 'static' ? h('span', { class: 'pname painted', 'aria-hidden': 'true', style: { fontSize: px + 'px' } }) : h('canvas', { class: 'pname', 'aria-hidden': 'true' })));
     const chat = h('div', { class: 'chat' });
     const chatNames = [];
     for (const [ts, who, col, msg] of CHAT) {
       let nameEl;
       if (who) nameEl = h('span', { class: 'who', style: { color: col } }, who);
-      else { nameEl = kind === 'static' ? h('span', { class: 'who painted' }) : h('canvas', { 'aria-hidden': 'true' }); chatNames.push(nameEl); }
+      else { nameEl = kind === 'static' ? h('span', { class: 'who painted', 'aria-hidden': 'true' }) : h('canvas', { 'aria-hidden': 'true' }); chatNames.push(nameEl); }
       chat.append(h('div', { class: 'msg' }, h('span', { class: 'ts' }, ts), nameEl, ': ' + msg));
     }
     box.append(...names, chat);
-    if (kind === 'static') box.append(h('span', { class: 'sr-only' }, 'Painted name preview'));
+    box.append(h('span', { class: 'sr-only' }, 'Painted name preview of ' + state.preview.text));
     return { el: p, names, chatNames, box };
   }
 
@@ -4354,7 +4359,8 @@ window.PL = window.PL || {};
     const thumb = h('canvas', { class: 'thumb', width: 88, height: 22, 'data-thumb': item.id, 'aria-hidden': 'true' });
     const idx = list.indexOf(item);
     const select_ = () => { if (!(state.sel && state.sel.id === item.id)) { state.sel = { kind, id: item.id }; renderEditor(); } };
-    const nameEl = h('span', { class: 'name', title: 'Double-click to rename' }, item.name || def.name);
+    // the name is the row's real control: a named button that selects (Enter or Space), F2 or double-click renames, Delete removes
+    const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-current': isSel ? 'true' : null, 'aria-describedby': null, onclick: () => select_() }, item.name || def.name);
     nameEl.addEventListener('dblclick', () => {
       const inp = h('input', { class: 'field rename', value: item.name || def.name, maxlength: 64, 'aria-label': 'Rename' });
       let finished = false;
@@ -4367,11 +4373,12 @@ window.PL = window.PL || {};
     if (kind === 'layer' && item.blend !== 'normal') meta.push((PL.BLENDS.find((b) => b[0] === item.blend) || [, ''])[1].split(' (')[0]);
     if (kind === 'layer' && item.opacity < 1) meta.push(Math.round(item.opacity * 100) + '%');
     const el = h('div', {
-      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off'), role: 'listitem', 'data-id': item.id, tabindex: '0', 'aria-current': isSel ? 'true' : null,
+      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off'), role: 'listitem', 'data-id': item.id,
       onclick: (e) => { if (e.target.closest('button, input')) return; select_(); },
       onkeydown: (e) => {
-        if (e.target !== el) return;
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select_(); $('#editor [data-sel-first]')?.focus(); }
+        if (e.target !== nameEl) return;
+        if (e.key === 'F2') { e.preventDefault(); nameEl.dispatchEvent(new MouseEvent('dblclick')); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select_(); }
         if (e.key === 'Delete') { e.preventDefault(); remove(); }
       },
     },
@@ -4929,12 +4936,13 @@ window.PL = window.PL || {};
       else {
         const list = [...root.querySelectorAll('[aria-label]')].find((x) => x.getAttribute('aria-label') === fd.listLabel);
         const rows = list ? [...list.querySelectorAll(':scope > [data-id]')] : [];
-        el = rows[Math.min(fd.index, rows.length - 1)] || list?.closest('.panel')?.querySelector('.body .btn');
+        const nb = rows[Math.min(fd.index, rows.length - 1)];
+        el = nb?.querySelector('.name') || list?.closest('.panel')?.querySelector('.body .btn');
       }
     } else el = match(fd.inSettings ? $('#settingsPanel') || root : root);
     if (el) el.focus({ preventScroll: true });
   }
-  function focusItem(id) { setTimeout(() => $(`#editor [data-id="${id}"]`)?.focus({ preventScroll: true })); }
+  function focusItem(id) { setTimeout(() => $(`#editor [data-id="${id}"] .name`)?.focus({ preventScroll: true })); }
 
   function renderEditor() {
     const root = $('#editor');

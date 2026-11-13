@@ -254,17 +254,17 @@
     p.querySelector('.body').append(...body);
     p.querySelector('.body').prepend(box);
     // names
-    const names = SIZES.map((px) => (kind === 'static' ? h('span', { class: 'pname painted', style: { fontSize: px + 'px' } }) : h('canvas', { class: 'pname', 'aria-hidden': 'true' })));
+    const names = SIZES.map((px) => (kind === 'static' ? h('span', { class: 'pname painted', 'aria-hidden': 'true', style: { fontSize: px + 'px' } }) : h('canvas', { class: 'pname', 'aria-hidden': 'true' })));
     const chat = h('div', { class: 'chat' });
     const chatNames = [];
     for (const [ts, who, col, msg] of CHAT) {
       let nameEl;
       if (who) nameEl = h('span', { class: 'who', style: { color: col } }, who);
-      else { nameEl = kind === 'static' ? h('span', { class: 'who painted' }) : h('canvas', { 'aria-hidden': 'true' }); chatNames.push(nameEl); }
+      else { nameEl = kind === 'static' ? h('span', { class: 'who painted', 'aria-hidden': 'true' }) : h('canvas', { 'aria-hidden': 'true' }); chatNames.push(nameEl); }
       chat.append(h('div', { class: 'msg' }, h('span', { class: 'ts' }, ts), nameEl, ': ' + msg));
     }
     box.append(...names, chat);
-    if (kind === 'static') box.append(h('span', { class: 'sr-only' }, 'Painted name preview'));
+    box.append(h('span', { class: 'sr-only' }, 'Painted name preview of ' + state.preview.text));
     return { el: p, names, chatNames, box };
   }
 
@@ -488,7 +488,8 @@
     const thumb = h('canvas', { class: 'thumb', width: 88, height: 22, 'data-thumb': item.id, 'aria-hidden': 'true' });
     const idx = list.indexOf(item);
     const select_ = () => { if (!(state.sel && state.sel.id === item.id)) { state.sel = { kind, id: item.id }; renderEditor(); } };
-    const nameEl = h('span', { class: 'name', title: 'Double-click to rename' }, item.name || def.name);
+    // the name is the row's real control: a named button that selects (Enter or Space), F2 or double-click renames, Delete removes
+    const nameEl = h('button', { type: 'button', class: 'name', title: 'Double-click or F2 to rename', 'aria-current': isSel ? 'true' : null, 'aria-describedby': null, onclick: () => select_() }, item.name || def.name);
     nameEl.addEventListener('dblclick', () => {
       const inp = h('input', { class: 'field rename', value: item.name || def.name, maxlength: 64, 'aria-label': 'Rename' });
       let finished = false;
@@ -501,11 +502,12 @@
     if (kind === 'layer' && item.blend !== 'normal') meta.push((PL.BLENDS.find((b) => b[0] === item.blend) || [, ''])[1].split(' (')[0]);
     if (kind === 'layer' && item.opacity < 1) meta.push(Math.round(item.opacity * 100) + '%');
     const el = h('div', {
-      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off'), role: 'listitem', 'data-id': item.id, tabindex: '0', 'aria-current': isSel ? 'true' : null,
+      class: 'item sortable-item' + (isSel ? ' sel' : '') + (item.visible ? '' : ' off'), role: 'listitem', 'data-id': item.id,
       onclick: (e) => { if (e.target.closest('button, input')) return; select_(); },
       onkeydown: (e) => {
-        if (e.target !== el) return;
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select_(); $('#editor [data-sel-first]')?.focus(); }
+        if (e.target !== nameEl) return;
+        if (e.key === 'F2') { e.preventDefault(); nameEl.dispatchEvent(new MouseEvent('dblclick')); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select_(); }
         if (e.key === 'Delete') { e.preventDefault(); remove(); }
       },
     },
@@ -1063,12 +1065,13 @@
       else {
         const list = [...root.querySelectorAll('[aria-label]')].find((x) => x.getAttribute('aria-label') === fd.listLabel);
         const rows = list ? [...list.querySelectorAll(':scope > [data-id]')] : [];
-        el = rows[Math.min(fd.index, rows.length - 1)] || list?.closest('.panel')?.querySelector('.body .btn');
+        const nb = rows[Math.min(fd.index, rows.length - 1)];
+        el = nb?.querySelector('.name') || list?.closest('.panel')?.querySelector('.body .btn');
       }
     } else el = match(fd.inSettings ? $('#settingsPanel') || root : root);
     if (el) el.focus({ preventScroll: true });
   }
-  function focusItem(id) { setTimeout(() => $(`#editor [data-id="${id}"]`)?.focus({ preventScroll: true })); }
+  function focusItem(id) { setTimeout(() => $(`#editor [data-id="${id}"] .name`)?.focus({ preventScroll: true })); }
 
   function renderEditor() {
     const root = $('#editor');
