@@ -52,6 +52,8 @@
     folder: '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>',
     reset: '<path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.8L3 8"/><path d="M3 3v5h5"/>',
     fx: '<path d="M4 20h4l10-16h2M7 11h7M15 14l5 6M20 14l-5 6"/>',
+    collapse: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+    expand: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
     dice: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.2"/><circle cx="15.5" cy="15.5" r="1.2"/><circle cx="15.5" cy="8.5" r="1.2"/><circle cx="8.5" cy="15.5" r="1.2"/>',
     move: '<path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/>',
   };
@@ -65,8 +67,26 @@
   const iconBtn = (name, label, onclick, extra = {}) => h('button', Object.assign({ type: 'button', class: 'icon-btn' + (extra.cls ? ' ' + extra.cls : ''), 'aria-label': label, 'data-tip': label, onclick }, extra.attrs || {}), icon(name));
   const btn = (label, onclick, cls = 'secondary', ic) => h('button', { type: 'button', class: 'btn ' + cls, onclick }, ic ? icon(ic) : null, label);
 
+  // Every panel collapses from its header; the choice is remembered per panel key.
+  const PANELS_KEY = 'cyexPaints.collapsed';
+  let collapsedPanels = new Set();
+  try { collapsedPanels = new Set(JSON.parse(localStorage.getItem(PANELS_KEY) || '[]')); } catch (e) {}
+  const savePanels = () => { try { localStorage.setItem(PANELS_KEY, JSON.stringify([...collapsedPanels])); } catch (e) {} };
   function panel(title, body, tools = [], extra = {}) {
-    return h('section', { class: 'panel', id: extra.id || null }, h('header', null, h('h2', null, title), extra.count != null ? h('span', { class: 'count' }, extra.count) : null, ...tools), h('div', { class: 'body' }, body));
+    const key = extra.key || title;
+    const bodyEl = h('div', { class: 'body' }, body);
+    const sec = h('section', { class: 'panel', id: extra.id || null });
+    const setOpen = (open) => {
+      bodyEl.hidden = !open;
+      sec.classList.toggle('collapsed', !open);
+      tog.setAttribute('aria-expanded', String(open));
+      if (open) collapsedPanels.delete(key); else collapsedPanels.add(key);
+      savePanels();
+    };
+    const tog = h('button', { type: 'button', class: 'ptoggle', 'aria-expanded': 'true', onclick: () => setOpen(bodyEl.hidden) }, icon('chevron'), h('span', null, title));
+    if (collapsedPanels.has(key)) { bodyEl.hidden = true; sec.classList.add('collapsed'); tog.setAttribute('aria-expanded', 'false'); }
+    sec.append(h('header', null, h('h2', null, tog), extra.count != null ? h('span', { class: 'count' }, extra.count) : null, ...tools), bodyEl);
+    return sec;
   }
 
   // ---- range with number field ----
@@ -420,7 +440,10 @@
   const grip = (label) => h('button', { type: 'button', class: 'grip', 'aria-label': label || 'Drag to reorder', 'data-tip': 'Drag to reorder', 'data-hint': 'Or Alt+Up and Alt+Down' }, h('i'), h('i'), h('i'));
 
   // ---- collapsible group ----
-  const openGroups = new Set(['Colours', 'Settings', 'Shape', 'Layer']);
+  const GROUPS_KEY = 'cyexPaints.openGroups';
+  let openGroups = new Set(['Colours', 'Settings', 'Shape', 'Layer']);
+  try { const g = JSON.parse(localStorage.getItem(GROUPS_KEY) || 'null'); if (Array.isArray(g)) openGroups = new Set(g); } catch (e) {}
+  const saveGroups = () => { try { localStorage.setItem(GROUPS_KEY, JSON.stringify([...openGroups])); } catch (e) {} };
   function group(title, content, { open, count } = {}) {
     const isOpen = open ?? openGroups.has(title);
     const body = h('div', { class: 'gbody' }, content);
@@ -428,6 +451,7 @@
       const o = head.getAttribute('aria-expanded') !== 'true';
       head.setAttribute('aria-expanded', String(o)); body.hidden = !o;
       if (o) openGroups.add(title); else openGroups.delete(title);
+      saveGroups();
     } }, icon('chevron'), h('span', null, title), count != null ? h('span', { class: 'gcount' }, count) : null);
     body.hidden = !isOpen;
     return h('div', { class: 'group' }, head, body);

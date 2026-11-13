@@ -223,11 +223,11 @@
     const color = colorField(pv.color, null, (hx) => { pv.color = hx; refreshPreview(); save(); }, { label: 'Name colour' });
     const bg = seg([['dark', 'Dark chat'], ['light', 'Light chat'], ['checker', 'Transparent']], pv.bg, (v) => { pv.bg = v; box.className = 'stagebox ' + v; save(); }, 'Backdrop');
     const box = h('div', { class: 'stagebox ' + pv.bg, id: 'stagebox' });
-    const ctl = h('div', { class: 'split' }, labeled('Preview name', text), labeled('Name colour (shows through transparent parts)', color));
-    const body = [ctl, h('div', { class: 'row' }, bg)];
+    const ctl = h('div', { class: 'split' }, labeled('Preview name', text), labeled('Name colour', color));
+    const body = [ctl, h('p', { class: 'hint' }, 'The name colour shows through any transparent part of the paint, as it does in 7TV.'), h('div', { class: 'row' }, bg)];
     const p = panel('Preview', [], [], { id: 'previewPanel' });
     p.querySelector('.body').append(...body);
-    p.insertBefore(box, p.querySelector('.body'));
+    p.querySelector('.body').prepend(box);
     // names
     const names = SIZES.map((px) => (kind === 'static' ? h('span', { class: 'pname painted', style: { fontSize: px + 'px' } }) : h('canvas', { class: 'pname', 'aria-hidden': 'true' })));
     const chat = h('div', { class: 'chat' });
@@ -573,7 +573,10 @@
     if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it.'));
     const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); renderEditor(); changed(true); }, { cls: 'sm' });
     const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); state.sel = { kind, id: c.id }; renderEditor(); changed(true); }, { cls: 'sm' });
-    return panel((kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name), body, [dup, reset], { id: 'settingsPanel' });
+    const setAll = (open) => { for (const hd of document.querySelectorAll('#settingsPanel .ghead')) if ((hd.getAttribute('aria-expanded') === 'true') !== open) hd.click(); };
+    const collapseAll = iconBtn('collapse', 'Collapse all groups', () => setAll(false), { cls: 'sm' });
+    const expandAll = iconBtn('expand', 'Expand all groups', () => setAll(true), { cls: 'sm' });
+    return panel((kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name), body, [collapseAll, expandAll, dup, reset], { id: 'settingsPanel', key: 'settings' });
   }
 
   function fileToDataUrl(file, max) {
@@ -825,7 +828,7 @@
       checkbox('Keep transparent areas (the name colour shows through)', g.alpha, (v) => { g.alpha = v; save(); }),
       h('p', { class: 'hint' }, 'GIF has 256 colours and on/off transparency. APNG keeps full colour and soft edges, and 7TV can show it too.'));
 
-    const nsz = slider('Name size for name exports', state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { state.nameSize = v; save(); } });
+    const nsz = slider('Name size', state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { state.nameSize = v; save(); } });
 
     // 7TV JSON for an image paint
     outputGetter = () => (codeTab === 'project' ? JSON.stringify({ cyexPaintProject: 1, doc: state.anim }, null, 2).slice(0, 20000) : JSON.stringify({ name: state.anim.name, function: 'URL', repeat: false, angle: 0, shape: 'circle', image_url: state.url, stops: [], shadows: state.anim.shadows }, null, 2));

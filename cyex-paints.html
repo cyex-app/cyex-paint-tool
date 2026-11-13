@@ -315,9 +315,9 @@ h1, h2, h3 { margin: 0; letter-spacing: 0; }
 .unit { color: var(--dim); font-size: .76rem; margin-left: -4px; }
 
 input[type='range'] { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; background: transparent; margin: 0; cursor: pointer; --p: 50%; }
-input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: var(--radius-pill); background: linear-gradient(to right, var(--accent) var(--p), var(--border-strong) var(--p)); }
-input[type='range']::-moz-range-track { height: 4px; border-radius: var(--radius-pill); background: var(--border-strong); }
-input[type='range']::-moz-range-progress { height: 4px; border-radius: var(--radius-pill); background: var(--accent); }
+input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: var(--radius-sm); background: linear-gradient(to right, var(--accent) var(--p), var(--border-strong) var(--p)); }
+input[type='range']::-moz-range-track { height: 4px; border-radius: var(--radius-sm); background: var(--border-strong); }
+input[type='range']::-moz-range-progress { height: 4px; border-radius: var(--radius-sm); background: var(--accent); }
 input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--text); border: 0; box-shadow: 0 0 0 3px var(--bg); }
 input[type='range']::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--text); border: 0; box-shadow: 0 0 0 3px var(--bg); }
 input[type='range']:focus-visible { outline: none; }
@@ -358,7 +358,7 @@ input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 .stops { display: flex; flex-direction: column; gap: 10px; }
 .gbar { position: relative; height: 34px; margin: 0 7px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 12px 12px; cursor: copy; touch-action: none; }
 .gbar .fill { position: absolute; inset: 0; border-radius: var(--radius-sm); }
-.handle { position: absolute; top: -5px; width: 14px; height: 42px; margin-left: -7px; border: 2px solid var(--text); border-radius: var(--radius); box-shadow: 0 0 0 1px var(--bg), 0 1px 4px var(--shadow); cursor: ew-resize; touch-action: none; padding: 0; }
+.handle { position: absolute; top: -5px; width: 14px; height: 42px; margin-left: -7px; border: 2px solid var(--text); border-radius: var(--radius); box-shadow: 0 0 0 1px var(--bg); cursor: ew-resize; touch-action: none; padding: 0; }
 .handle.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--accent-border); z-index: 2; }
 .stoplist { display: flex; flex-direction: column; border: 1px solid var(--border); }
 .stoprow { display: grid; grid-template-columns: 20px auto 1fr auto auto auto; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-bottom: 1px solid var(--border); }
@@ -393,6 +393,7 @@ input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 .stagebox.light { background: var(--chat-light); color: var(--chat-light-text); }
 .stagebox.checker { background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 16px 16px; }
 .pname { font-family: var(--name-font); font-weight: 700; line-height: 1.2; white-space: nowrap; max-width: 100%; }
+canvas.pname { max-width: none; flex: none; }
 .painted { background-color: currentcolor; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 canvas.pname { display: block; }
 .chat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, currentcolor 12%, transparent); }
@@ -449,7 +450,9 @@ textarea.code:focus-visible { border-color: var(--focus-ring); box-shadow: 0 0 0
 @keyframes tip-in { from { opacity: 0; transform: scale(.97); } }
 .toasts { position: fixed; right: 18px; bottom: 18px; z-index: var(--z-toast); display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .toasts.errors { right: auto; left: 18px; align-items: flex-start; }
-.toast { position: relative; max-width: min(420px, calc(100vw - 36px)); padding: 12px 30px 14px 14px; background: var(--elevated); border: 1px solid var(--border-strong); border-left: 3px solid var(--border-strong); box-shadow: var(--shadow-pop); font-size: .85rem; overflow: hidden; animation: toast-in var(--base) var(--ease); }
+.toast { position: relative; max-width: min(420px, calc(100vw - 36px)); padding: 12px 30px 14px 14px; background: var(--elevated); border: 1px solid var(--border-strong); border-left: 3px solid var(--border-strong); box-shadow: var(--shadow-pop); font-size: .85rem; overflow: hidden; overflow-wrap: anywhere; animation: toast-in var(--base) var(--ease); }
+.toasts.errors .toast { animation-name: toast-in-left; }
+@keyframes toast-in-left { from { opacity: 0; transform: translateX(-16px) scale(.98); } }
 .toast.error { border-left-color: var(--red); }
 .toast.success { border-left-color: var(--green); }
 .toast .x { position: absolute; top: 6px; right: 6px; }
@@ -470,12 +473,12 @@ textarea.code:focus-visible { border-color: var(--focus-ring); box-shadow: 0 0 0
 @media (max-width: 1000px) { .layout.anim { grid-template-columns: minmax(0, 1fr); } }
 
 /* drag handles and sorting */
-.grip { display: grid; grid-template-columns: repeat(2, 3px); gap: 2px 3px; place-content: center; width: 18px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; cursor: grab; flex: none; touch-action: none; }
+.grip { display: grid; grid-template-columns: repeat(2, 3px); gap: 2px 3px; place-content: center; width: 24px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; cursor: grab; flex: none; touch-action: none; }
 .grip i { width: 3px; height: 3px; border-radius: 50%; background: var(--dim); }
 .grip i:nth-child(3) { grid-column: 1 / 3; justify-self: center; }
 .grip:hover i { background: var(--text); }
 .grip:active { cursor: grabbing; }
-.sortable-item { transition: transform var(--fast) var(--ease); }
+.sortable-item { transition: transform var(--fast) var(--ease), background-color var(--fast); }
 .sortable-item.dragging { transition: none; position: relative; z-index: 5; background: var(--elevated); box-shadow: var(--shadow-pop); }
 .sorting { user-select: none; }
 .item .grip { margin-left: -4px; }
@@ -494,6 +497,7 @@ textarea.code:focus-visible { border-color: var(--focus-ring); box-shadow: 0 0 0
 .ghead:focus-visible { outline-offset: -2px; }
 .gcount { font: 600 .72rem var(--font-mono); color: var(--dim); font-variant-numeric: tabular-nums; }
 .gbody { padding: 4px 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.gbody[hidden] { display: none; }
 .qhint { display: inline-grid; place-items: center; width: 14px; height: 14px; margin-left: 6px; border: 1px solid var(--border-strong); border-radius: 50%; font-size: .6rem; color: var(--dim); text-transform: none; letter-spacing: 0; vertical-align: 1px; cursor: help; }
 .drag-hint { display: flex; align-items: center; gap: 6px; }
 .drag-hint svg { width: 14px; height: 14px; flex: none; }
@@ -546,6 +550,57 @@ body.dropping::after { content: 'Drop images to add them as elements, or a .json
   .topbar-in { flex-wrap: wrap; gap: 10px; }
   #presetsBtn .lbl { display: none; }
 }
+
+/* ---------- uitest fixes ---------- */
+[hidden] { display: none !important; }
+/* larger hit area for the 14 px stop handles without changing their look */
+.handle::before { content: ''; position: absolute; inset: -2px -6px; }
+/* file pickers are a styled label around an sr-only input */
+label.btn:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* instant press feedback on the remaining pressables */
+.seg button:active, .option:active, .navitem:active, .ghead:active, .select > button:active, .item:active, .chip:active { opacity: .6; transition: none; }
+/* touch: enlarge the small controls to the 32 px floor */
+@media (pointer: coarse) {
+  .icon-btn.sm { width: 32px; height: 32px; }
+  .grip { width: 32px; height: 32px; }
+  .num { height: 32px; }
+  .seg button { height: 32px; }
+  .handle::before { inset: -2px -10px; }
+}
+/* hover only where hover exists, so states don't stick after a tap */
+@media (hover: none) {
+  .btn.secondary:hover { background: var(--surface); }
+  .btn.ghost:hover, .icon-btn:hover { background: transparent; color: var(--muted); }
+  .btn.primary:hover { background: var(--accent); }
+  .item:hover { background: none; box-shadow: none; }
+  .item.sel:hover { background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--accent); }
+  .card:hover, .chip:hover { border-color: var(--border); }
+  .card:hover { background: var(--surface); }
+  .option:hover, .navitem:hover, .ghead:hover { background: none; }
+}
+/* phones: the header scrolls away instead of taking a quarter of the screen */
+@media (max-width: 640px) {
+  .topbar { position: static; }
+  .stage, .settings-col { top: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .toast .drain { display: none; } }
+/* Windows contrast themes: keep selected states visible */
+@media (forced-colors: active) {
+  .seg button[aria-checked='true'], .option[aria-selected='true'], .navitem[aria-current='true'], .icon-btn.active { outline: 2px solid Highlight; outline-offset: -2px; }
+  .item.sel, .stoprow.sel { outline: 2px solid Highlight; outline-offset: -2px; }
+  .handle.sel { outline: 2px solid Highlight; }
+  .painted, canvas.pname, .tex, .pbar, .gbar, .swatch, .thumb, .card canvas, .card .sw { forced-color-adjust: none; }
+}
+.color { flex-wrap: wrap; }
+.color > .ctl { min-width: 140px; }
+/* collapsible panels */
+.ptoggle { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 0; border: 0; background: none; text-align: left; font: inherit; font-weight: 700; color: var(--text); cursor: pointer; border-radius: var(--radius-sm); }
+.ptoggle span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptoggle svg { width: 14px; height: 14px; flex: none; color: var(--dim); transition: transform var(--fast) var(--ease); }
+.ptoggle[aria-expanded='false'] svg { transform: rotate(-90deg); }
+.ptoggle:focus-visible { outline-offset: 2px; }
+.panel.collapsed > header { border-bottom: 0; }
+.panel > .body > .stagebox:first-child { margin: -14px -14px 0; }
 
 </style>
 </head>
@@ -3191,6 +3246,8 @@ window.PL = window.PL || {};
     folder: '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>',
     reset: '<path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.8L3 8"/><path d="M3 3v5h5"/>',
     fx: '<path d="M4 20h4l10-16h2M7 11h7M15 14l5 6M20 14l-5 6"/>',
+    collapse: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+    expand: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
     dice: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.2"/><circle cx="15.5" cy="15.5" r="1.2"/><circle cx="15.5" cy="8.5" r="1.2"/><circle cx="8.5" cy="15.5" r="1.2"/>',
     move: '<path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/>',
   };
@@ -3204,8 +3261,26 @@ window.PL = window.PL || {};
   const iconBtn = (name, label, onclick, extra = {}) => h('button', Object.assign({ type: 'button', class: 'icon-btn' + (extra.cls ? ' ' + extra.cls : ''), 'aria-label': label, 'data-tip': label, onclick }, extra.attrs || {}), icon(name));
   const btn = (label, onclick, cls = 'secondary', ic) => h('button', { type: 'button', class: 'btn ' + cls, onclick }, ic ? icon(ic) : null, label);
 
+  // Every panel collapses from its header; the choice is remembered per panel key.
+  const PANELS_KEY = 'cyexPaints.collapsed';
+  let collapsedPanels = new Set();
+  try { collapsedPanels = new Set(JSON.parse(localStorage.getItem(PANELS_KEY) || '[]')); } catch (e) {}
+  const savePanels = () => { try { localStorage.setItem(PANELS_KEY, JSON.stringify([...collapsedPanels])); } catch (e) {} };
   function panel(title, body, tools = [], extra = {}) {
-    return h('section', { class: 'panel', id: extra.id || null }, h('header', null, h('h2', null, title), extra.count != null ? h('span', { class: 'count' }, extra.count) : null, ...tools), h('div', { class: 'body' }, body));
+    const key = extra.key || title;
+    const bodyEl = h('div', { class: 'body' }, body);
+    const sec = h('section', { class: 'panel', id: extra.id || null });
+    const setOpen = (open) => {
+      bodyEl.hidden = !open;
+      sec.classList.toggle('collapsed', !open);
+      tog.setAttribute('aria-expanded', String(open));
+      if (open) collapsedPanels.delete(key); else collapsedPanels.add(key);
+      savePanels();
+    };
+    const tog = h('button', { type: 'button', class: 'ptoggle', 'aria-expanded': 'true', onclick: () => setOpen(bodyEl.hidden) }, icon('chevron'), h('span', null, title));
+    if (collapsedPanels.has(key)) { bodyEl.hidden = true; sec.classList.add('collapsed'); tog.setAttribute('aria-expanded', 'false'); }
+    sec.append(h('header', null, h('h2', null, tog), extra.count != null ? h('span', { class: 'count' }, extra.count) : null, ...tools), bodyEl);
+    return sec;
   }
 
   // ---- range with number field ----
@@ -3559,7 +3634,10 @@ window.PL = window.PL || {};
   const grip = (label) => h('button', { type: 'button', class: 'grip', 'aria-label': label || 'Drag to reorder', 'data-tip': 'Drag to reorder', 'data-hint': 'Or Alt+Up and Alt+Down' }, h('i'), h('i'), h('i'));
 
   // ---- collapsible group ----
-  const openGroups = new Set(['Colours', 'Settings', 'Shape', 'Layer']);
+  const GROUPS_KEY = 'cyexPaints.openGroups';
+  let openGroups = new Set(['Colours', 'Settings', 'Shape', 'Layer']);
+  try { const g = JSON.parse(localStorage.getItem(GROUPS_KEY) || 'null'); if (Array.isArray(g)) openGroups = new Set(g); } catch (e) {}
+  const saveGroups = () => { try { localStorage.setItem(GROUPS_KEY, JSON.stringify([...openGroups])); } catch (e) {} };
   function group(title, content, { open, count } = {}) {
     const isOpen = open ?? openGroups.has(title);
     const body = h('div', { class: 'gbody' }, content);
@@ -3567,6 +3645,7 @@ window.PL = window.PL || {};
       const o = head.getAttribute('aria-expanded') !== 'true';
       head.setAttribute('aria-expanded', String(o)); body.hidden = !o;
       if (o) openGroups.add(title); else openGroups.delete(title);
+      saveGroups();
     } }, icon('chevron'), h('span', null, title), count != null ? h('span', { class: 'gcount' }, count) : null);
     body.hidden = !isOpen;
     return h('div', { class: 'group' }, head, body);
@@ -3866,11 +3945,11 @@ window.PL = window.PL || {};
     const color = colorField(pv.color, null, (hx) => { pv.color = hx; refreshPreview(); save(); }, { label: 'Name colour' });
     const bg = seg([['dark', 'Dark chat'], ['light', 'Light chat'], ['checker', 'Transparent']], pv.bg, (v) => { pv.bg = v; box.className = 'stagebox ' + v; save(); }, 'Backdrop');
     const box = h('div', { class: 'stagebox ' + pv.bg, id: 'stagebox' });
-    const ctl = h('div', { class: 'split' }, labeled('Preview name', text), labeled('Name colour (shows through transparent parts)', color));
-    const body = [ctl, h('div', { class: 'row' }, bg)];
+    const ctl = h('div', { class: 'split' }, labeled('Preview name', text), labeled('Name colour', color));
+    const body = [ctl, h('p', { class: 'hint' }, 'The name colour shows through any transparent part of the paint, as it does in 7TV.'), h('div', { class: 'row' }, bg)];
     const p = panel('Preview', [], [], { id: 'previewPanel' });
     p.querySelector('.body').append(...body);
-    p.insertBefore(box, p.querySelector('.body'));
+    p.querySelector('.body').prepend(box);
     // names
     const names = SIZES.map((px) => (kind === 'static' ? h('span', { class: 'pname painted', style: { fontSize: px + 'px' } }) : h('canvas', { class: 'pname', 'aria-hidden': 'true' })));
     const chat = h('div', { class: 'chat' });
@@ -4216,7 +4295,10 @@ window.PL = window.PL || {};
     if (hasXY) body.splice(2, 0, h('p', { class: 'hint drag-hint' }, icon('move'), 'Drag on the paint image to move it.'));
     const reset = iconBtn('reset', 'Reset to defaults', () => { item.params = E.defaults(def); if (item.xf) item.xf = Object.assign({}, E.DEFAULT_XF); if (item.tweak) item.tweak = Object.assign({}, E.DEFAULT_TWEAK); renderEditor(); changed(true); }, { cls: 'sm' });
     const dup = iconBtn('dup', 'Duplicate', () => { const list = s.list, c = clone(item); c.id = PL.uid(kind[0]); list.splice(list.indexOf(item) + 1, 0, c); state.sel = { kind, id: c.id }; renderEditor(); changed(true); }, { cls: 'sm' });
-    return panel((kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name), body, [dup, reset], { id: 'settingsPanel' });
+    const setAll = (open) => { for (const hd of document.querySelectorAll('#settingsPanel .ghead')) if ((hd.getAttribute('aria-expanded') === 'true') !== open) hd.click(); };
+    const collapseAll = iconBtn('collapse', 'Collapse all groups', () => setAll(false), { cls: 'sm' });
+    const expandAll = iconBtn('expand', 'Expand all groups', () => setAll(true), { cls: 'sm' });
+    return panel((kind === 'layer' ? (def.draw ? 'Element: ' : 'Layer: ') : 'Effect: ') + (item.name || def.name), body, [collapseAll, expandAll, dup, reset], { id: 'settingsPanel', key: 'settings' });
   }
 
   function fileToDataUrl(file, max) {
@@ -4468,7 +4550,7 @@ window.PL = window.PL || {};
       checkbox('Keep transparent areas (the name colour shows through)', g.alpha, (v) => { g.alpha = v; save(); }),
       h('p', { class: 'hint' }, 'GIF has 256 colours and on/off transparency. APNG keeps full colour and soft edges, and 7TV can show it too.'));
 
-    const nsz = slider('Name size for name exports', state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { state.nameSize = v; save(); } });
+    const nsz = slider('Name size', state.nameSize, { min: 12, max: 160, step: 1, unit: 'px', onInput: (v) => { state.nameSize = v; save(); } });
 
     // 7TV JSON for an image paint
     outputGetter = () => (codeTab === 'project' ? JSON.stringify({ cyexPaintProject: 1, doc: state.anim }, null, 2).slice(0, 20000) : JSON.stringify({ name: state.anim.name, function: 'URL', repeat: false, angle: 0, shape: 'circle', image_url: state.url, stops: [], shadows: state.anim.shadows }, null, 2));
