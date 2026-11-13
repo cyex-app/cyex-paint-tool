@@ -257,6 +257,131 @@
     return h('div', { class: 'color' }, parts);
   }
 
+  // ---- colours from an image ----
+  // paletteFromImage(file | blob | ImageBitmap, n = 5) -> Promise<[{ c: '#rrggbb', w, share }]>
+  // The picture is shrunk to at most 96 px, near-transparent pixels are ignored, and the pixels are grouped
+  // with k-means in Oklab (distances there follow how different two colours look). The result is sorted by
+  // share, largest first. w is a palette strength (0.1 to 4, the largest colour is 4); share is 0..1 and
+  // adds up to 1. Rejects when the picture can't be decoded or has no visible pixels.
+  const toLin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  const fromLin = (x) => Math.round(PL.clamp(x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055) * 255);
+  function rgbToOklab(r, g, b, out, o) {
+    r = toLin(r); g = toLin(g); b = toLin(b);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    out[o] = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+    out[o + 1] = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+    out[o + 2] = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  }
+  function oklabToHex(L, a, b) {
+    const l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3), m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3), s = Math.pow(L - 0.0894841775 * a - 1.291485548 * b, 3);
+    return PL.rgbToHex(fromLin(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s), fromLin(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s), fromLin(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s));
+  }
+  async function imagePixels(src) {
+    let img, own = null, url = '';
+    if (typeof ImageBitmap !== 'undefined' && src instanceof ImageBitmap) img = src;
+    else {
+      try { img = own = await createImageBitmap(src); }
+      catch (e) { url = URL.createObjectURL(src); img = new Image(); img.src = url; await img.decode(); } // SVG and other formats createImageBitmap refuses
+    }
+    try {
+      const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
+      if (!w0 || !h0) throw new Error('empty image');
+      const k = Math.min(1, 96 / Math.max(w0, h0)), w = Math.max(1, Math.round(w0 * k)), hh = Math.max(1, Math.round(h0 * k));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = hh;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.imageSmoothingQuality = 'high'; ctx.drawImage(img, 0, 0, w, hh);
+      return ctx.getImageData(0, 0, w, hh).data;
+    } finally { if (own) own.close(); if (url) URL.revokeObjectURL(url); }
+  }
+  async function paletteFromImage(src, n = 5) {
+    n = Math.max(2, Math.min(8, Math.round(+n) || 5));
+    const data = await imagePixels(src);
+    const pts = new Float32Array((data.length / 4) * 3);
+    let N = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i + 3] >= 40) rgbToOklab(data[i], data[i + 1], data[i + 2], pts, 3 * N++);
+    if (!N) throw new Error('no visible pixels');
+    // fixed seed, so the same picture always gives the same colours
+    let seed = 12345;
+    const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const d2 = (i, c) => { const dL = pts[i] - c[0], dA = pts[i + 1] - c[1], dB = pts[i + 2] - c[2]; return dL * dL + dA * dA + dB * dB; };
+    const first = Math.floor(rnd() * N) * 3;
+    const cen = [[pts[first], pts[first + 1], pts[first + 2]]];
+    const best = new Float32Array(N).fill(Infinity);
+    while (cen.length < Math.min(n, N)) { // k-means++ start: far-apart colours first
+      const last = cen[cen.length - 1];
+      let sum = 0;
+      for (let p = 0; p < N; p++) { const d = d2(p * 3, last); if (d < best[p]) best[p] = d; sum += best[p]; }
+      if (sum < 1e-9) break; // every pixel is already covered: fewer distinct colours than asked for
+      let r = rnd() * sum, pick = N - 1;
+      for (let p = 0; p < N; p++) { r -= best[p]; if (r <= 0) { pick = p; break; } }
+      cen.push([pts[pick * 3], pts[pick * 3 + 1], pts[pick * 3 + 2]]);
+    }
+    const k = cen.length, count = new Float64Array(k), sums = new Float64Array(k * 3);
+    for (let it = 0; it < 14; it++) {
+      count.fill(0); sums.fill(0);
+      for (let p = 0; p < N; p++) {
+        let bi = 0, bd = Infinity;
+        for (let c = 0; c < k; c++) { const d = d2(p * 3, cen[c]); if (d < bd) { bd = d; bi = c; } }
+        count[bi]++; sums[bi * 3] += pts[p * 3]; sums[bi * 3 + 1] += pts[p * 3 + 1]; sums[bi * 3 + 2] += pts[p * 3 + 2];
+      }
+      for (let c = 0; c < k; c++) if (count[c]) cen[c] = [sums[c * 3] / count[c], sums[c * 3 + 1] / count[c], sums[c * 3 + 2] / count[c]];
+    }
+    // merge clusters that look the same (Oklab distance under 0.05), keeping the larger one's place
+    const out = [];
+    [...cen.keys()].filter((c) => count[c] > 0).sort((a, b) => count[b] - count[a]).forEach((c) => {
+      const near = out.find((o) => Math.hypot(o.lab[0] - cen[c][0], o.lab[1] - cen[c][1], o.lab[2] - cen[c][2]) < 0.05);
+      if (near) { const t = near.n + count[c]; near.lab = near.lab.map((v, i) => (v * near.n + cen[c][i] * count[c]) / t); near.n = t; }
+      else out.push({ lab: cen[c].slice(), n: count[c] });
+    });
+    out.sort((a, b) => b.n - a.n);
+    const top = out[0].n;
+    return out.map((o) => ({ c: oklabToHex(o.lab[0], o.lab[1], o.lab[2]), w: Math.max(0.1, Math.round((o.n / top) * 4 * 20) / 20), share: o.n / N, L: o.lab[0] }));
+  }
+  // Gradient stops from image colours: dark to light, each spaced by its share of the picture.
+  function stopsFromImageColours(cols) {
+    const s = [...cols].sort((a, b) => a.L - b.L);
+    if (s.length === 1) return [{ at: 0, color: s[0].c, a: 1 }];
+    let acc = 0;
+    const mid = s.map((x) => { const m = acc + x.share / 2; acc += x.share; return m; });
+    const lo = mid[0], span = mid[mid.length - 1] - lo || 1;
+    return s.map((x, i) => ({ at: Math.round(((mid[i] - lo) / span) * 1000) / 1000, color: x.c, a: 1 }));
+  }
+  // "From image" button with a small Colours field. Opens a picker; Ctrl+V of an image anywhere inside root works too.
+  const IMG_N_KEY = 'cyexPaints.imageColours';
+  let imgN = 5;
+  try { const v = Math.round(+localStorage.getItem(IMG_N_KEY)); if (v >= 2 && v <= 8) imgN = v; } catch (e) {}
+  function imageColoursControl(root, apply) {
+    let busy = false;
+    const input = h('input', { type: 'file', accept: 'image/*', tabindex: '-1', 'aria-hidden': 'true', style: { display: 'none' } });
+    const num = h('input', { type: 'text', inputmode: 'numeric', class: 'num', value: String(imgN), 'aria-label': 'Colours to take from the image', 'data-tip': 'Colours to take', 'data-hint': '2 to 8' });
+    const count = () => { const v = Math.round(parseFloat(num.value.replace(',', '.'))); return Number.isFinite(v) ? Math.max(2, Math.min(8, v)) : imgN; };
+    const setCount = (v) => { imgN = v; num.value = String(v); try { localStorage.setItem(IMG_N_KEY, String(v)); } catch (e) {} };
+    num.addEventListener('change', () => setCount(count()));
+    num.addEventListener('keydown', (e) => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); setCount(Math.max(2, Math.min(8, count() + (e.key === 'ArrowUp' ? 1 : -1)))); } });
+    const b = btn('From image', () => input.click(), 'ghost small', 'image');
+    b.dataset.tip = 'Take colours from a picture'; b.dataset.hint = 'Or paste an image with Ctrl+V';
+    const run = async (blob) => {
+      if (busy) return;
+      busy = true; b.disabled = true;
+      try {
+        const cols = await paletteFromImage(blob, count());
+        if (!cols.length) throw new Error('no colours');
+        apply(cols);
+        toast(`Took ${cols.length} ${cols.length === 1 ? 'colour' : 'colours'} from the image.`);
+      } catch (err) { toast('Couldn’t read that image. Try a PNG, JPG or WebP file.', 'error'); }
+      finally { busy = false; b.disabled = false; }
+    };
+    input.addEventListener('change', () => { const f = input.files && input.files[0]; input.value = ''; if (f) run(f); });
+    root.addEventListener('paste', (e) => {
+      const f = [...((e.clipboardData && e.clipboardData.files) || [])].find((x) => x.type.startsWith('image/'));
+      if (!f) return; // text pastes (hex fields) are left alone
+      e.preventDefault(); run(f);
+    });
+    return h('span', { class: 'imgfrom' }, b, num, input);
+  }
+
   // ---- gradient stops editor (stops: [{ at, color, a }]) ----
   const MAX_STOPS = 32; // beyond this the handles overlap and the list gets slow; imports keep up to 64
   function stopsEditor(stops, onChange, opts = {}) {
@@ -351,7 +476,8 @@
       addStopB = btn('Add stop', () => { if (stops.length >= MAX_STOPS) { toast(`A gradient can have up to ${MAX_STOPS} stops.`); return; } const a = stops[sel] || stops[0]; const b = stops[sel + 1]; const at = b ? (a.at + b.at) / 2 : a ? Math.min(1, a.at + 0.1) : 0; const c = sampleAt(at); stops.push({ at: Math.round(at * 1000) / 1000, color: c.color, a: c.a }); stops.sort((x, y) => x.at - y.at); sel = stops.findIndex((s) => s.at === Math.round(at * 1000) / 1000); renderAll(); emit(true); }, 'secondary small', 'plus'),
       btn('Reverse', () => { stops.forEach((s) => (s.at = Math.round((1 - s.at) * 1000) / 1000)); stops.reverse(); renderAll(); emit(true); }, 'ghost small', 'swap'),
       btn('Spread evenly', () => { stops.sort((a, b) => a.at - b.at); stops.forEach((s, i) => (s.at = stops.length > 1 ? Math.round((i / (stops.length - 1)) * 1000) / 1000 : 0)); renderAll(); emit(true); }, 'ghost small', 'spread'),
-      opts.palettes ? paletteMenu((pal) => { stops.splice(0, stops.length, ...PL.clone(pal)); sel = 0; renderAll(); emit(true); }) : null);
+      opts.palettes ? paletteMenu((pal) => { stops.splice(0, stops.length, ...PL.clone(pal)); sel = 0; renderAll(); emit(true); }) : null,
+      imageColoursControl(root, (cols) => { stops.splice(0, stops.length, ...stopsFromImageColours(cols)); sel = 0; renderAll(); emit(true); }));
     root.append(bar, list, tools);
     renderAll();
     return root;
@@ -626,7 +752,8 @@
       addColB = btn('Add colour', () => { if (pal.colors.length >= MAX_COLOURS) return; const last = pal.colors[pal.colors.length - 1]; pal.colors.push({ c: last ? last.c : '#ffffff', a: 1, w: 1 }); render(); emit(true); }, 'secondary small', 'plus'),
       btn('Even out', () => { pal.colors.forEach((c) => (c.w = 1)); render(); emit(true); }, 'ghost small', 'spread'),
       btn('Reverse', () => { pal.colors.reverse(); render(); emit(true); }, 'ghost small', 'swap'),
-      paletteMenu((stops) => { const np = PL.stopsToPalette(stops, pal.loop); pal.colors = np.colors; render(); emit(true); }));
+      paletteMenu((stops) => { const np = PL.stopsToPalette(stops, pal.loop); pal.colors = np.colors; render(); emit(true); }),
+      imageColoursControl(root, (cols) => { pal.colors = cols.map((x) => ({ c: x.c, a: 1, w: x.w })); render(); emit(true); }));
     root.append(bar, zeroHint, list, tools, h('div', { class: 'split' }, blend, h('div', { class: 'ctl', style: { justifyContent: 'flex-end' } }, checkbox('Loop back to the first colour', !!pal.loop, (v) => { pal.loop = v; emit(true); }))));
     render();
     return root;
@@ -649,5 +776,5 @@
   }
   const slug = (s) => (String(s || 'paint').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'paint');
 
-  PL.UI = { h, icon, iconBtn, btn, panel, slider, seg, checkbox, labeled, select, popover, closePop, colorField, stopsEditor, paletteMenu, paletteEditor, sortable, grip, group, openGroups, dialog, toast, download, copyText, slug };
+  PL.UI = { h, icon, iconBtn, btn, panel, slider, seg, checkbox, labeled, select, popover, closePop, colorField, stopsEditor, paletteMenu, paletteEditor, paletteFromImage, sortable, grip, group, openGroups, dialog, toast, download, copyText, slug };
 })(window.PL);

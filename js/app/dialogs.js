@@ -1,7 +1,7 @@
 /* cyex paints: library and presets dialogs. */
 (function (PL) {
   'use strict';
-  const { h, icon, seg, dialog, toast } = PL.UI;
+  const { h, icon, btn, seg, dialog, toast } = PL.UI;
   const E = PL.Engine, Paint = PL.Paint, clone = PL.clone;
   const A = (PL.App = PL.App || {});
 
@@ -110,8 +110,75 @@
         setTimeout(step, 30);
       }
     };
-    const d = dialog('Presets', [h('div', { class: 'row' }, tabs, h('span', { class: 'hint' }, 'Picking a preset replaces the current paint of that type. Undo brings it back.')), host], { wide: true });
+    // ---- Surprise me: a random paint for the current tab, previewed before it replaces anything ----
+    const surWrap = h('div', { class: 'surprise', hidden: true, role: 'group', 'aria-label': 'Surprise preview' });
+    let sur = null, stopPreview = () => {};
+    const kindOfTab = () => (tab === 'static' ? 'static' : 'anim');
+    const roll = (kind) => {
+      const S = PL.Surprise;
+      if (!S) { toast('Surprise me isn’t available.', 'error'); return; }
+      kind = kind || (sur && sur.kind) || kindOfTab();
+      let item;
+      try { item = kind === 'static' ? S.makeStatic() : S.make(); }
+      catch (e) { toast('Couldn’t make a paint just now. Try again.', 'error'); return; }
+      stopPreview();
+      sur = { kind, item };
+      const name = h('b', { class: 'sname' }, item.name);
+      let prev, meta;
+      if (kind === 'static') {
+        prev = h('div', { class: 'sw', style: { backgroundImage: Paint.gradientCss(item) }, 'aria-hidden': 'true' });
+        meta = `${item.function === 'RADIAL_GRADIENT' ? 'Radial' : 'Linear'} · ${item.stops.length} stops${item.repeat ? ' · repeating' : ''}${item.shadows.length ? ' · shadow' : ''}`;
+      } else {
+        prev = h('canvas', { width: 256, height: 64, 'aria-hidden': 'true' });
+        meta = item.layers.map((l) => PL.LAYERS[l.type].name).concat(item.effects.map((e) => PL.EFFECTS[e.type].name)).join(', ');
+        stopPreview = playPreview(prev, item);
+      }
+      surWrap.textContent = '';
+      surWrap.append(
+        h('div', { class: 'sprev' }, prev),
+        h('div', { class: 'sinfo', 'aria-live': 'polite' }, name, h('span', null, meta)),
+        h('div', { class: 'sact' },
+          btn('Use this', use, 'primary small'),
+          btn('Another', () => roll(), 'secondary small', 'dice'),
+          h('span', { class: 'hint' }, 'Press R for another.')));
+      surWrap.hidden = false;
+    };
+    const use = () => {
+      if (!sur) return;
+      if (sur.kind === 'static') { A.state.static = clone(sur.item); A.state.mode = 'static'; }
+      else { A.state.anim = clone(sur.item); A.state.mode = 'anim'; }
+      A.state.sel = null;
+      stopPreview(); d.close(); A.renderAll(); A.commit();
+    };
+    const surBtn = btn('Surprise me', () => roll(kindOfTab()), 'secondary small', 'dice');
+    surBtn.dataset.tip = 'Make a random paint for this tab'; surBtn.dataset.hint = 'Press R for another';
+    const d = dialog('Presets', [h('div', { class: 'row' }, tabs, surBtn, h('span', { class: 'hint' }, 'Picking a preset replaces the current paint of that type. Undo brings it back.')), surWrap, host], { wide: true, onClose: () => stopPreview() });
+    if (!d.box.dataset.surprise) d.box.addEventListener('keydown', (e) => { // a second open of the dialog reuses the first, so bind once
+      if (e.key.toLowerCase() !== 'r' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
+      if (e.target.closest && e.target.closest('input, textarea, [contenteditable]')) return;
+      e.preventDefault(); roll();
+    });
+    d.box.dataset.surprise = "1";
     render();
+  }
+
+  // Plays a document on a canvas, a frame at a time (every second frame, cached after the first pass).
+  // A still frame under reduced motion. Stops by itself once the canvas leaves the page. Returns a stop function.
+  function playPreview(cv, doc) {
+    let timer = 0;
+    const stop = () => clearInterval(timer);
+    try {
+      const d = Object.assign({}, doc, { width: 256, height: 64 }), cp = E.compile(d), n = E.frameCount(d), ctx = cv.getContext('2d'), cache = [];
+      const draw = (k) => { if (!cache[k]) cache[k] = E.renderFrame(cp, k); ctx.putImageData(cache[k], 0, 0); };
+      draw(Math.floor(n * 0.3));
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return stop;
+      let i = 0;
+      timer = setInterval(() => {
+        if (!cv.isConnected) { stop(); return; }
+        try { i = (i + 2) % n; draw(i); } catch (e) { stop(); }
+      }, 2000 / d.fps);
+    } catch (e) { stop(); }
+    return stop;
   }
 
   Object.assign(A, { openLibrary, openPresets });

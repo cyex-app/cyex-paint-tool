@@ -1,0 +1,21 @@
+/* Surprise me preview card (Presets dialog) and the "From image" control in the colour editors. Tokens only. */
+
+/* ---------- from image ---------- */
+.imgfrom { display: inline-flex; align-items: center; gap: 4px; }
+.imgfrom .num { width: 36px; text-align: center; }
+
+/* ---------- surprise preview ---------- */
+.surprise { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 10px 16px; align-items: center; padding: 12px; background: var(--surface); border: 1px solid var(--border); animation: sur-in var(--base) var(--ease); }
+.surprise[hidden] { display: none; }
+.surprise .sprev canvas, .surprise .sprev .sw { display: block; width: 100%; aspect-ratio: 4 / 1; border: 1px solid var(--border-strong); background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 8px 8px; forced-color-adjust: none; }
+.surprise .sinfo { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.surprise .sinfo b { font-size: 1.05rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.surprise .sinfo span { font-size: var(--text-hint); color: var(--dim); line-height: 1.4; }
+.surprise .sact { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@keyframes sur-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (max-width: 560px) {
+  .surprise { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .surprise { animation: none; }
+}
