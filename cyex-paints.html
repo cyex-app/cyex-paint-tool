@@ -7,7 +7,7 @@
   <meta name="description" content="Build static and animated 7TV name paints. Export 7TV JSON, CSS, PNG, GIF and APNG. Runs entirely in your browser.">
   <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#1e1f23">
-  <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+CiAgPHN0eWxlPgogICAgLmlua3tmaWxsOiMxYjFjMjB9Lm1pZHtmaWxsOiMxNGU2ZmZ9CiAgICBAbWVkaWEgKHByZWZlcnMtY29sb3Itc2NoZW1lOmRhcmspey5pbmt7ZmlsbDojZThlOGVhfS5taWR7ZmlsbDojMTQ1YWZmfX0KICA8L3N0eWxlPgogIDxyZWN0IGNsYXNzPSJpbmsiIHg9IjMiIHk9IjUiIHdpZHRoPSIxNSIgaGVpZ2h0PSI2Ii8+CiAgPHJlY3QgY2xhc3M9Im1pZCIgeD0iMTAiIHk9IjEzIiB3aWR0aD0iMTgiIGhlaWdodD0iNiIvPgogIDxyZWN0IGNsYXNzPSJpbmsiIHg9IjMiIHk9IjIxIiB3aWR0aD0iMTUiIGhlaWdodD0iNiIvPgo8L3N2Zz4K" type="image/svg+xml">
+  <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+DQogIDxzdHlsZT4NCiAgICAuaW5re2ZpbGw6IzFiMWMyMH0ubWlke2ZpbGw6IzE0ZTZmZn0NCiAgICBAbWVkaWEgKHByZWZlcnMtY29sb3Itc2NoZW1lOmRhcmspey5pbmt7ZmlsbDojZThlOGVhfS5taWR7ZmlsbDojMTQ1YWZmfX0NCiAgPC9zdHlsZT4NCiAgPHJlY3QgY2xhc3M9ImluayIgeD0iMyIgeT0iNSIgd2lkdGg9IjE1IiBoZWlnaHQ9IjYiLz4NCiAgPHJlY3QgY2xhc3M9Im1pZCIgeD0iMTAiIHk9IjEzIiB3aWR0aD0iMTgiIGhlaWdodD0iNiIvPg0KICA8cmVjdCBjbGFzcz0iaW5rIiB4PSIzIiB5PSIyMSIgd2lkdGg9IjE1IiBoZWlnaHQ9IjYiLz4NCjwvc3ZnPg0K" type="image/svg+xml">
   <script>
     (function () {
       try { if (localStorage.getItem('cyexTheme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {}
@@ -225,7 +225,7 @@ html { scrollbar-gutter: stable; }
 </style>
   <style>
 /* cyex paints: web-tool density on the cyex app tokens. */
-:root { --mark-ink: #e8e8ea; --chat-dark: #18181b; --chat-light: #ffffff; --chat-dark-text: #efeff1; --chat-light-text: #0e0e10; --checker-a: #2a2b31; --checker-b: #34353c; --name-font: 'Inter', 'Roobert', 'Segoe UI', system-ui, sans-serif; }
+:root { --mark-ink: #e8e8ea; --chat-dark: #18181b; --chat-light: #ffffff; --chat-dark-text: #efeff1; --chat-light-text: #0e0e10; --chat-d-green: #33d68f; --chat-d-cyan: #4fd6ff; --chat-d-pink: #ff7bd5; --chat-d-yellow: #ffb545; --chat-d-purple: #b083ff; --chat-d-line: rgba(255, 255, 255, .08); --chat-l-green: #0f8a55; --chat-l-cyan: #0b6d8a; --chat-l-pink: #a82277; --chat-l-yellow: #9a5c05; --chat-l-purple: #6b34c9; --chat-l-line: rgba(14, 14, 16, .1); --checker-a: #2a2b31; --checker-b: #34353c; --name-font: 'Inter', 'Roobert', 'Segoe UI', system-ui, sans-serif; }
 :root[data-theme='light'] { --mark-ink: #1b1c20; --checker-a: #e6e7ea; --checker-b: #f6f6f7; }
 
 html { font-size: 16px; }
@@ -654,41 +654,31 @@ h3.label { margin: 0; }
    Link after app.css. Tokens only (css/tokens.css, plus the chat tokens declared in app.css). */
 
 /* ---------- chat preview (previewPanel in js/app/editors.js) ---------- */
-.tchat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, currentcolor 12%, transparent); }
-.tmsg { display: block; padding: 1px 4px; border-radius: var(--radius-sm); overflow-wrap: anywhere; }
-.tts { margin-right: 6px; opacity: .6; font-variant-numeric: tabular-nums; }
+/* The chat backdrop is fixed (dark or light chat), not the app theme, so its colours are fixed too:
+   the dark-theme accent colours on dark chat, the light-theme ones on light chat. */
+.stagebox { --ch-green: var(--chat-d-green); --ch-cyan: var(--chat-d-cyan); --ch-pink: var(--chat-d-pink); --ch-yellow: var(--chat-d-yellow); --ch-purple: var(--chat-d-purple); --ch-ink: var(--chat-dark); --ch-line: var(--chat-d-line); }
+.stagebox.light { --ch-green: var(--chat-l-green); --ch-cyan: var(--chat-l-cyan); --ch-pink: var(--chat-l-pink); --ch-yellow: var(--chat-l-yellow); --ch-purple: var(--chat-l-purple); --ch-ink: var(--chat-light); --ch-line: var(--chat-l-line); }
+.tchat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--ch-line); }
+.tmsg { display: block; padding: 2px 4px; overflow-wrap: anywhere; }
+.tts { display: inline-block; min-width: 38px; margin-right: 4px; opacity: .55; font-variant-numeric: tabular-nums; }
 .tchat.no-ts .tts { display: none; }
 
-/* badges: small inline SVG squares, drawn here, no third-party artwork */
-.tbadges { display: inline-flex; gap: 3px; margin-right: 4px; vertical-align: middle; }
-.tbadges:empty { display: none; }
-.tbadge { display: block; width: 14px; height: 14px; flex: none; }
-.tbadge svg { display: block; width: 14px; height: 14px; }
-.tbadge rect { fill: currentcolor; }
-.tbadge path, .tbadge circle { fill: var(--on-solid); }
-.tbadge.mod { color: var(--green); }
-.tbadge.sub { color: var(--twitch); }
-.tbadge.vip { color: var(--gold); }
-.tbadge.mod path, .tbadge.vip path { fill: var(--chat-dark); }
+/* badges: flat squares with a letter, drawn here, no third-party artwork */
+/* pinned to the top of the 20px line (3px down centres a 14px badge); baseline alignment drifts with the letter */
+.tbadges { display: inline-flex; gap: 3px; margin: 3px 5px 0 0; vertical-align: top; }
+.tbadge { display: grid; place-items: center; width: 14px; height: 14px; border-radius: var(--radius-sm); background: var(--b); color: var(--ch-ink); font-size: 9px; font-weight: 700; line-height: 1; }
+.tb-mod { --b: var(--ch-green); }
+.tb-sub { --b: var(--ch-purple); }
+.tb-vip { --b: var(--ch-yellow); }
 
-/* names: --c is the chat colour; on the light backdrop it is mixed toward the text colour for contrast */
+/* names */
 .twho { font-weight: 700; color: var(--c); }
-.twho[data-c='green'] { --c: var(--green); }
-.twho[data-c='cyan'] { --c: var(--cyan); }
-.twho[data-c='pink'] { --c: var(--pink); }
-.twho[data-c='yellow'] { --c: var(--yellow); }
-.twho[data-c='purple'] { --c: var(--purple); }
-.stagebox.light .twho[data-c] { color: color-mix(in srgb, var(--c) 55%, var(--chat-light-text)); }
+.twho[data-c='green'] { --c: var(--ch-green); }
+.twho[data-c='cyan'] { --c: var(--ch-cyan); }
+.twho[data-c='pink'] { --c: var(--ch-pink); }
+.twho[data-c='yellow'] { --c: var(--ch-yellow); }
+.twho[data-c='purple'] { --c: var(--ch-purple); }
 .tchat canvas { display: inline-block; vertical-align: middle; }
-
-/* emote placeholders: plain inline SVG blobs */
-.temote { display: inline-block; width: 20px; height: 20px; margin: -2px 2px; vertical-align: middle; }
-.temote svg { display: block; width: 100%; height: 100%; }
-.temote.a svg { fill: var(--yellow); }
-.temote.b svg { fill: var(--cyan); }
-.temote.c svg { fill: var(--pink); }
-.temote .k { fill: var(--chat-dark); }
-.temote .s { fill: none; stroke: var(--chat-dark); stroke-width: 2; stroke-linecap: round; }
 
 /* ---------- layered paint editor (layersPanel in js/app/editors.js) ---------- */
 .layer-card { border: 1px solid var(--border); background: var(--surface); }
@@ -709,7 +699,7 @@ h3.label { margin: 0; }
   .layer-toggle svg { transition: none; }
 }
 @media (forced-colors: active) {
-  .tbadge, .temote, .layer-sw { forced-color-adjust: none; }
+  .tbadge, .layer-sw { forced-color-adjust: none; }
 }
 
 /* the Add layer button stays focusable at the layer cap, so it uses aria-disabled and keeps its tooltip */
@@ -5954,31 +5944,21 @@ window.PL = window.PL || {};
   // =====================================================================================
   // Preview panel (shared shell)
   // =====================================================================================
-  // A Twitch-like chat mock (styles in css/preview.css). Badges and emotes are plain inline SVG shapes.
-  // Colours are design tokens; --c carries the name colour so the light backdrop can darken it.
+  // A chat mock (styles in css/preview.css). Badges are flat squares with a letter, no emotes or artwork.
+  // Name colours come from the chat tokens, so they read on the chat backdrop whatever the app theme.
   const SIZES = [36, 24, 18];
-  const BADGES = {
-    mod: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="2"/><path d="M8 3.5 12.5 12h-9z"/></svg>',
-    sub: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="2"/><circle cx="8" cy="8" r="3.4"/></svg>',
-    vip: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="2"/><path d="M8 3 13 8 8 13 3 8z"/></svg>',
-  };
-  const EMOTES = {
-    a: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle class="k" cx="8.5" cy="10" r="1.6"/><circle class="k" cx="15.5" cy="10" r="1.6"/><path class="k s" d="M7.5 14.5q4.5 4 9 0"/></svg>',
-    b: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-6l-5 4v-4H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z"/><path class="k s" d="M7 9.5h3M14 9.5h3M8.5 13.5h7"/></svg>',
-    c: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21C5 16 2.5 12.5 2.5 8.8A5 5 0 0 1 12 6.6a5 5 0 0 1 9.5 2.2C21.5 12.5 19 16 12 21z"/></svg>',
-  };
-  // [time, badges, who, colour token (null = you), message parts (string or { e: emote })]
+  const BADGES = { mod: 'M', sub: 'S', vip: 'V' };
+  // [time, badges, who, colour (null = you), message parts (string or { me: true })]
   const CHAT = [
-    ['14:02', ['mod', 'sub'], 'quietoak', 'green', ['that paint is clean ', { e: 'a' }]],
+    ['14:02', ['mod', 'sub'], 'quietoak', 'green', ['that paint is clean']],
     ['14:02', ['sub'], 'nora_byte', 'cyan', ['how long did the gradient take']],
     ['14:02', ['sub'], null, null, ['thanks, built it right here']],
-    ['14:03', [], 'pixelmoth', 'pink', [{ e: 'c' }, { e: 'c' }, ' the edges stay sharp on the dark side']],
+    ['14:03', [], 'pixelmoth', 'pink', ['the edges stay sharp on the dark side']],
     ['14:03', ['vip'], 'mosswren', 'yellow', ['does it hold up on light mode too']],
-    ['14:03', ['sub'], null, null, ['checking that next ', { e: 'b' }]],
-    ['14:04', ['sub'], 'tallpine_', 'purple', [{ e: 'a' }, ' chat is moving fast']],
+    ['14:03', ['sub'], null, null, ['checking that next']],
+    ['14:04', ['sub'], 'tallpine_', 'purple', ['chat is moving fast']],
     ['14:04', ['mod'], 'quietoak', 'green', ['@', { me: true }, ' that one looks great, ship it']],
   ];
-  const svgSpan = (cls, html) => { const s = h('span', { class: cls, 'aria-hidden': 'true' }); s.innerHTML = html; return s; };
 
   function previewPanel(kind) {
     const pv = A.state.preview;
@@ -6005,9 +5985,9 @@ window.PL = window.PL || {};
       const nameEl = who ? h('span', { class: 'twho', 'data-c': col }, who) : mkMe('twho me');
       chat.append(h('div', { class: 'tmsg' },
         h('span', { class: 'tts' }, ts),
-        h('span', { class: 'tbadges' }, badges.map((b) => svgSpan('tbadge ' + b, BADGES[b]))),
+        badges.length ? h('span', { class: 'tbadges' }, badges.map((b) => h('span', { class: 'tbadge tb-' + b }, BADGES[b]))) : null,
         nameEl, h('span', { class: 'tsep' }, ': '),
-        h('span', { class: 'ttext' }, parts.map((x) => (typeof x === 'string' ? x : x.e ? svgSpan('temote ' + x.e, EMOTES[x.e]) : mkMe('twho me'))))));
+        h('span', { class: 'ttext' }, parts.map((x) => (typeof x === 'string' ? x : mkMe('twho me'))))));
     }
     box.append(...names, chat);
     const sr = h('span', { class: 'sr-only' }, 'Painted name preview of ' + A.state.preview.text);

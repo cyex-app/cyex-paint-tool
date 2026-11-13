@@ -254,31 +254,21 @@
   // =====================================================================================
   // Preview panel (shared shell)
   // =====================================================================================
-  // A Twitch-like chat mock (styles in css/preview.css). Badges and emotes are plain inline SVG shapes.
-  // Colours are design tokens; --c carries the name colour so the light backdrop can darken it.
+  // A chat mock (styles in css/preview.css). Badges are flat squares with a letter, no emotes or artwork.
+  // Name colours come from the chat tokens, so they read on the chat backdrop whatever the app theme.
   const SIZES = [36, 24, 18];
-  const BADGES = {
-    mod: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="2"/><path d="M8 3.5 12.5 12h-9z"/></svg>',
-    sub: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="2"/><circle cx="8" cy="8" r="3.4"/></svg>',
-    vip: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="2"/><path d="M8 3 13 8 8 13 3 8z"/></svg>',
-  };
-  const EMOTES = {
-    a: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle class="k" cx="8.5" cy="10" r="1.6"/><circle class="k" cx="15.5" cy="10" r="1.6"/><path class="k s" d="M7.5 14.5q4.5 4 9 0"/></svg>',
-    b: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-6l-5 4v-4H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z"/><path class="k s" d="M7 9.5h3M14 9.5h3M8.5 13.5h7"/></svg>',
-    c: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21C5 16 2.5 12.5 2.5 8.8A5 5 0 0 1 12 6.6a5 5 0 0 1 9.5 2.2C21.5 12.5 19 16 12 21z"/></svg>',
-  };
-  // [time, badges, who, colour token (null = you), message parts (string or { e: emote })]
+  const BADGES = { mod: 'M', sub: 'S', vip: 'V' };
+  // [time, badges, who, colour (null = you), message parts (string or { me: true })]
   const CHAT = [
-    ['14:02', ['mod', 'sub'], 'quietoak', 'green', ['that paint is clean ', { e: 'a' }]],
+    ['14:02', ['mod', 'sub'], 'quietoak', 'green', ['that paint is clean']],
     ['14:02', ['sub'], 'nora_byte', 'cyan', ['how long did the gradient take']],
     ['14:02', ['sub'], null, null, ['thanks, built it right here']],
-    ['14:03', [], 'pixelmoth', 'pink', [{ e: 'c' }, { e: 'c' }, ' the edges stay sharp on the dark side']],
+    ['14:03', [], 'pixelmoth', 'pink', ['the edges stay sharp on the dark side']],
     ['14:03', ['vip'], 'mosswren', 'yellow', ['does it hold up on light mode too']],
-    ['14:03', ['sub'], null, null, ['checking that next ', { e: 'b' }]],
-    ['14:04', ['sub'], 'tallpine_', 'purple', [{ e: 'a' }, ' chat is moving fast']],
+    ['14:03', ['sub'], null, null, ['checking that next']],
+    ['14:04', ['sub'], 'tallpine_', 'purple', ['chat is moving fast']],
     ['14:04', ['mod'], 'quietoak', 'green', ['@', { me: true }, ' that one looks great, ship it']],
   ];
-  const svgSpan = (cls, html) => { const s = h('span', { class: cls, 'aria-hidden': 'true' }); s.innerHTML = html; return s; };
 
   function previewPanel(kind) {
     const pv = A.state.preview;
@@ -305,9 +295,9 @@
       const nameEl = who ? h('span', { class: 'twho', 'data-c': col }, who) : mkMe('twho me');
       chat.append(h('div', { class: 'tmsg' },
         h('span', { class: 'tts' }, ts),
-        h('span', { class: 'tbadges' }, badges.map((b) => svgSpan('tbadge ' + b, BADGES[b]))),
+        badges.length ? h('span', { class: 'tbadges' }, badges.map((b) => h('span', { class: 'tbadge tb-' + b }, BADGES[b]))) : null,
         nameEl, h('span', { class: 'tsep' }, ': '),
-        h('span', { class: 'ttext' }, parts.map((x) => (typeof x === 'string' ? x : x.e ? svgSpan('temote ' + x.e, EMOTES[x.e]) : mkMe('twho me'))))));
+        h('span', { class: 'ttext' }, parts.map((x) => (typeof x === 'string' ? x : mkMe('twho me'))))));
     }
     box.append(...names, chat);
     const sr = h('span', { class: 'sr-only' }, 'Painted name preview of ' + A.state.preview.text);

@@ -2,41 +2,31 @@
    Link after app.css. Tokens only (css/tokens.css, plus the chat tokens declared in app.css). */
 
 /* ---------- chat preview (previewPanel in js/app/editors.js) ---------- */
-.tchat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, currentcolor 12%, transparent); }
-.tmsg { display: block; padding: 1px 4px; border-radius: var(--radius-sm); overflow-wrap: anywhere; }
-.tts { margin-right: 6px; opacity: .6; font-variant-numeric: tabular-nums; }
+/* The chat backdrop is fixed (dark or light chat), not the app theme, so its colours are fixed too:
+   the dark-theme accent colours on dark chat, the light-theme ones on light chat. */
+.stagebox { --ch-green: var(--chat-d-green); --ch-cyan: var(--chat-d-cyan); --ch-pink: var(--chat-d-pink); --ch-yellow: var(--chat-d-yellow); --ch-purple: var(--chat-d-purple); --ch-ink: var(--chat-dark); --ch-line: var(--chat-d-line); }
+.stagebox.light { --ch-green: var(--chat-l-green); --ch-cyan: var(--chat-l-cyan); --ch-pink: var(--chat-l-pink); --ch-yellow: var(--chat-l-yellow); --ch-purple: var(--chat-l-purple); --ch-ink: var(--chat-light); --ch-line: var(--chat-l-line); }
+.tchat { display: flex; flex-direction: column; gap: 2px; width: 100%; font-family: var(--name-font); font-size: 13px; line-height: 20px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--ch-line); }
+.tmsg { display: block; padding: 2px 4px; overflow-wrap: anywhere; }
+.tts { display: inline-block; min-width: 38px; margin-right: 4px; opacity: .55; font-variant-numeric: tabular-nums; }
 .tchat.no-ts .tts { display: none; }
 
-/* badges: small inline SVG squares, drawn here, no third-party artwork */
-.tbadges { display: inline-flex; gap: 3px; margin-right: 4px; vertical-align: middle; }
-.tbadges:empty { display: none; }
-.tbadge { display: block; width: 14px; height: 14px; flex: none; }
-.tbadge svg { display: block; width: 14px; height: 14px; }
-.tbadge rect { fill: currentcolor; }
-.tbadge path, .tbadge circle { fill: var(--on-solid); }
-.tbadge.mod { color: var(--green); }
-.tbadge.sub { color: var(--twitch); }
-.tbadge.vip { color: var(--gold); }
-.tbadge.mod path, .tbadge.vip path { fill: var(--chat-dark); }
+/* badges: flat squares with a letter, drawn here, no third-party artwork */
+/* pinned to the top of the 20px line (3px down centres a 14px badge); baseline alignment drifts with the letter */
+.tbadges { display: inline-flex; gap: 3px; margin: 3px 5px 0 0; vertical-align: top; }
+.tbadge { display: grid; place-items: center; width: 14px; height: 14px; border-radius: var(--radius-sm); background: var(--b); color: var(--ch-ink); font-size: 9px; font-weight: 700; line-height: 1; }
+.tb-mod { --b: var(--ch-green); }
+.tb-sub { --b: var(--ch-purple); }
+.tb-vip { --b: var(--ch-yellow); }
 
-/* names: --c is the chat colour; on the light backdrop it is mixed toward the text colour for contrast */
+/* names */
 .twho { font-weight: 700; color: var(--c); }
-.twho[data-c='green'] { --c: var(--green); }
-.twho[data-c='cyan'] { --c: var(--cyan); }
-.twho[data-c='pink'] { --c: var(--pink); }
-.twho[data-c='yellow'] { --c: var(--yellow); }
-.twho[data-c='purple'] { --c: var(--purple); }
-.stagebox.light .twho[data-c] { color: color-mix(in srgb, var(--c) 55%, var(--chat-light-text)); }
+.twho[data-c='green'] { --c: var(--ch-green); }
+.twho[data-c='cyan'] { --c: var(--ch-cyan); }
+.twho[data-c='pink'] { --c: var(--ch-pink); }
+.twho[data-c='yellow'] { --c: var(--ch-yellow); }
+.twho[data-c='purple'] { --c: var(--ch-purple); }
 .tchat canvas { display: inline-block; vertical-align: middle; }
-
-/* emote placeholders: plain inline SVG blobs */
-.temote { display: inline-block; width: 20px; height: 20px; margin: -2px 2px; vertical-align: middle; }
-.temote svg { display: block; width: 100%; height: 100%; }
-.temote.a svg { fill: var(--yellow); }
-.temote.b svg { fill: var(--cyan); }
-.temote.c svg { fill: var(--pink); }
-.temote .k { fill: var(--chat-dark); }
-.temote .s { fill: none; stroke: var(--chat-dark); stroke-width: 2; stroke-linecap: round; }
 
 /* ---------- layered paint editor (layersPanel in js/app/editors.js) ---------- */
 .layer-card { border: 1px solid var(--border); background: var(--surface); }
@@ -57,7 +47,7 @@
   .layer-toggle svg { transition: none; }
 }
 @media (forced-colors: active) {
-  .tbadge, .temote, .layer-sw { forced-color-adjust: none; }
+  .tbadge, .layer-sw { forced-color-adjust: none; }
 }
 
 /* the Add layer button stays focusable at the layer cap, so it uses aria-disabled and keeps its tooltip */

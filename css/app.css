@@ -1,5 +1,5 @@
 /* cyex paints: web-tool density on the cyex app tokens. */
-:root { --mark-ink: #e8e8ea; --chat-dark: #18181b; --chat-light: #ffffff; --chat-dark-text: #efeff1; --chat-light-text: #0e0e10; --checker-a: #2a2b31; --checker-b: #34353c; --name-font: 'Inter', 'Roobert', 'Segoe UI', system-ui, sans-serif; }
+:root { --mark-ink: #e8e8ea; --chat-dark: #18181b; --chat-light: #ffffff; --chat-dark-text: #efeff1; --chat-light-text: #0e0e10; --chat-d-green: #33d68f; --chat-d-cyan: #4fd6ff; --chat-d-pink: #ff7bd5; --chat-d-yellow: #ffb545; --chat-d-purple: #b083ff; --chat-d-line: rgba(255, 255, 255, .08); --chat-l-green: #0f8a55; --chat-l-cyan: #0b6d8a; --chat-l-pink: #a82277; --chat-l-yellow: #9a5c05; --chat-l-purple: #6b34c9; --chat-l-line: rgba(14, 14, 16, .1); --checker-a: #2a2b31; --checker-b: #34353c; --name-font: 'Inter', 'Roobert', 'Segoe UI', system-ui, sans-serif; }
 :root[data-theme='light'] { --mark-ink: #1b1c20; --checker-a: #e6e7ea; --checker-b: #f6f6f7; }
 
 html { font-size: 16px; }
