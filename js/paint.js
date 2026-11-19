@@ -157,17 +157,20 @@
   const cssUrl = (u) => `url("${String(u).replace(/["\\\n\r]/g, (c) => encodeURIComponent(c))}")`;
   const round4 = (x) => Math.round(x * 10000) / 10000;
 
-  // Mirrors createGradientFromPaint in SevenTV/Extension (src/composable/useCosmetics.ts).
-  // Works on a classic paint and on one entry of gradients[]. The extension adds no argument for
-  // CONIC_GRADIENT, so a conic layer starts at the top and runs clockwise.
+  // CSS background-image value for a classic paint or one entry of gradients[].
+  // Linear layers lead with their angle, radial ones with their shape; a conic layer has no leading
+  // argument, so it starts at the top and runs clockwise. Image layers become url(...) or "none".
   function gradientCss(p) {
-    const args = [];
-    if (p.function === 'LINEAR_GRADIENT') args.push(`${p.angle ?? 0}deg`);
-    else if (p.function === 'RADIAL_GRADIENT') args.push(p.shape ?? 'circle');
-    else if (p.function === 'URL') { const u = safeUrl(p.image_url); return u ? cssUrl(u) : 'none'; }
-    const prefix = p.repeat ? 'repeating-' : '';
-    for (const s of p.stops) args.push(`${decToCss(s.color)} ${s.at * 100}%`);
-    return `${prefix}${p.function.toLowerCase().replace('_', '-')}(${args.join(', ')})`;
+    if (p.function === 'URL') {
+      const href = safeUrl(p.image_url);
+      return href ? cssUrl(href) : 'none';
+    }
+    const lead = [];
+    if (p.function === 'LINEAR_GRADIENT') lead.push((p.angle ?? 0) + 'deg');
+    if (p.function === 'RADIAL_GRADIENT') lead.push(p.shape ?? 'circle');
+    const stops = p.stops.map((s) => decToCss(s.color) + ' ' + s.at * 100 + '%');
+    const name = (p.repeat ? 'repeating-' : '') + p.function.toLowerCase().replace('_', '-');
+    return name + '(' + lead.concat(stops).join(', ') + ')';
   }
   const shadowCss = (s) => `drop-shadow(${s.x_offset}px ${s.y_offset}px ${s.radius}px ${decToCss(s.color)})`;
   function filterCss(p) { return p.shadows && p.shadows.length ? p.shadows.map(shadowCss).join(' ') : ''; }

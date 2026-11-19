@@ -23,9 +23,12 @@ window.PL = window.PL || {};
   // 7TV stores colours as a signed 32-bit int: (r << 24) | (g << 16) | (b << 8) | a
   const packRGBA = (r, g, b, a) => ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255);
   const unpackRGBA = (n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  // CSS colour for a packed colour: one byte per channel, red in the top byte, alpha in the low byte.
   function decToCss(n) {
-    const [r, g, b, a] = unpackRGBA(n);
-    return `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`;
+    const bits = n | 0;
+    const byteAt = (shift) => (bits >> shift) & 255;
+    const alpha = (byteAt(0) / 255).toFixed(3);
+    return 'rgba(' + byteAt(24) + ', ' + byteAt(16) + ', ' + byteAt(8) + ', ' + alpha + ')';
   }
   const hexAlphaToDec = (hex, alpha) => { const [r, g, b] = hexToRgb(hex); return packRGBA(r, g, b, Math.round(clamp(alpha) * 255)); };
   const decToHexAlpha = (n) => { const [r, g, b, a] = unpackRGBA(n); return { hex: rgbToHex(r, g, b), alpha: a / 255 }; };
